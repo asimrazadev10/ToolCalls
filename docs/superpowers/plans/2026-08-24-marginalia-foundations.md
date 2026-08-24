@@ -1,6 +1,6 @@
 # Marginalia Foundations Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Stand up an enforced module boundary, a tested configuration module, and an isolated `rag` schema whose per-user isolation is proven by test rather than asserted.
 
@@ -35,14 +35,14 @@ The dimension trap from the spec becomes a failing test rather than a comment: 3
 - Consumes: nothing.
 - Produces: `EMBEDDING_MODEL_ID: string`, `EMBEDDING_DIMENSIONS: number`, `HNSW_MAX_DIMENSIONS_FOR_VECTOR: 2000`, `HNSW_MAX_DIMENSIONS_FOR_HALFVEC: 4096`, `CHUNK_TARGET_TOKENS`, `CHUNK_OVERLAP_RATIO`, `RECIPROCAL_RANK_FUSION_K`, `DENSE_CANDIDATE_COUNT`, `FULL_TEXT_CANDIDATE_COUNT`, `FUSED_RESULT_COUNT`, `MAX_UPLOAD_BYTES`, `MAX_PAGE_COUNT`.
 
-- [ ] **Step 1: Install Vitest and add the test script**
+- [x] **Step 1: Install Vitest and add the test script**
 
 ```bash
 npm install -D vitest@^3
 npm pkg set scripts.test="vitest run" scripts.test:watch="vitest"
 ```
 
-- [ ] **Step 2: Create `vitest.config.ts`**
+- [x] **Step 2: Create `vitest.config.ts`**
 
 ```ts
 import { defineConfig } from 'vitest/config';
@@ -59,7 +59,7 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 3: Write the failing test — `src/rag/config.test.ts`**
+- [x] **Step 3: Write the failing test — `src/rag/config.test.ts`**
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -98,12 +98,12 @@ describe('chunk overlap', () => {
 });
 ```
 
-- [ ] **Step 4: Run the test to verify it fails**
+- [x] **Step 4: Run the test to verify it fails**
 
 Run: `npm test`
 Expected: FAIL — cannot resolve `./config`.
 
-- [ ] **Step 5: Write `src/rag/config.ts`**
+- [x] **Step 5: Write `src/rag/config.ts`**
 
 ```ts
 /**
@@ -146,12 +146,12 @@ export const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
 export const MAX_PAGE_COUNT = 500;
 ```
 
-- [ ] **Step 6: Run the test to verify it passes**
+- [x] **Step 6: Run the test to verify it passes**
 
 Run: `npm test`
 Expected: PASS, 4 tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add package.json package-lock.json vitest.config.ts src/rag/config.ts src/rag/config.test.ts
@@ -172,14 +172,14 @@ git commit -m "Add Marginalia config with executable dimension invariants"
 - Consumes: nothing.
 - Produces: `npm run lint`, `npm run verify` (typecheck + lint + test).
 
-- [ ] **Step 1: Install ESLint and the TypeScript plugin**
+- [x] **Step 1: Install ESLint and the TypeScript plugin**
 
 ```bash
 npm install -D eslint@^9 typescript-eslint@^8 @eslint/js@^9
 npm pkg set scripts.lint="eslint ." scripts.verify="npm run typecheck && npm run lint && npm test"
 ```
 
-- [ ] **Step 2: Create `eslint.config.mjs`**
+- [x] **Step 2: Create `eslint.config.mjs`**
 
 ```js
 import js from '@eslint/js';
@@ -206,7 +206,7 @@ export default tseslint.config(
 );
 ```
 
-- [ ] **Step 3: Prove the rule fires — create a deliberate violation**
+- [x] **Step 3: Prove the rule fires — create a deliberate violation**
 
 ```bash
 printf "import { tools } from '@/lib/ai/agent';\nexport const broken = tools;\n" > src/rag/boundary-probe.ts
@@ -215,7 +215,7 @@ npx eslint src/rag/boundary-probe.ts
 
 Expected: FAIL with the "must not import the weather agent" message.
 
-- [ ] **Step 4: Delete the probe and confirm a clean run**
+- [x] **Step 4: Delete the probe and confirm a clean run**
 
 ```bash
 rm src/rag/boundary-probe.ts
@@ -224,7 +224,7 @@ npm run verify
 
 Expected: typecheck, lint and tests all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add eslint.config.mjs package.json package-lock.json
@@ -241,7 +241,7 @@ git commit -m "Enforce Marginalia module boundary with lint"
 **Interfaces:**
 - Produces: `rag.documents`, `rag.chunks`, `rag.embeddings`, `rag.query_log`, and the enum `rag.document_status`.
 
-- [ ] **Step 1: Confirm the schema does not already exist**
+- [x] **Step 1: Confirm the schema does not already exist**
 
 ```sql
 select count(*) from information_schema.schemata where schema_name = 'rag';
@@ -249,14 +249,14 @@ select count(*) from information_schema.schemata where schema_name = 'rag';
 
 Expected: 0.
 
-- [ ] **Step 2: Write and apply the migration**
+- [x] **Step 2: Write and apply the migration**
 
 Table definitions are in the spec's data-model section; apply verbatim with
 `owner_id uuid not null` on all four tables, `unique (owner_id, content_sha256)`
 on documents, `content_tsv` generated stored on chunks, and
 `embedding halfvec(3072)` on embeddings.
 
-- [ ] **Step 3: Verify tables, index types and dimensions**
+- [x] **Step 3: Verify tables, index types and dimensions**
 
 ```sql
 select tablename, indexname, indexdef from pg_indexes where schemaname = 'rag';
@@ -264,7 +264,7 @@ select tablename, indexname, indexdef from pg_indexes where schemaname = 'rag';
 
 Expected: one `hnsw` index using `halfvec_ip_ops`, one `gin` index on `content_tsv`.
 
-- [ ] **Step 4: Commit the migration file**
+- [x] **Step 4: Commit the migration file**
 
 ---
 
@@ -276,23 +276,23 @@ The exit criterion for this phase. Not "policies exist" — "user A provably can
 - Create: `supabase/migrations/20260824091000_rag_rls.sql`
 - Create: `supabase/tests/rls_isolation.sql`
 
-- [ ] **Step 1: Enable RLS and add owner policies on all four tables**
+- [x] **Step 1: Enable RLS and add owner policies on all four tables**
 
-- [ ] **Step 2: Write the isolation proof**
+- [x] **Step 2: Write the isolation proof**
 
 Insert one document for each of two users, then within a transaction set
 `role authenticated` and `request.jwt.claims` to user A's id and assert exactly
 one visible row; repeat for B; assert neither sees the other.
 
-- [ ] **Step 3: Run it and require the asserted counts**
+- [x] **Step 3: Run it and require the asserted counts**
 
 Expected: A sees 1, B sees 1, cross-visibility 0.
 
-- [ ] **Step 4: Run the Supabase security advisor**
+- [x] **Step 4: Run the Supabase security advisor**
 
 Expected: no findings against the `rag` schema.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ---
 
@@ -301,7 +301,33 @@ Expected: no findings against the `rag` schema.
 **Files:**
 - Create: `supabase/migrations/20260824092000_rag_storage.sql`
 
-- [ ] **Step 1: Create a private bucket `rag-documents`**
-- [ ] **Step 2: Add policies requiring the object path's first segment to equal `auth.uid()`**
-- [ ] **Step 3: Verify the bucket is private and four policies exist**
-- [ ] **Step 4: Commit**
+- [x] **Step 1: Create a private bucket `rag-documents`**
+- [x] **Step 2: Add policies requiring the object path's first segment to equal `auth.uid()`**
+- [x] **Step 3: Verify the bucket is private and four policies exist**
+- [x] **Step 4: Commit**
+
+---
+
+## Completion record — 2026-08-24
+
+All five tasks complete and verified. `npm run verify` green: typecheck clean,
+20 files linted with 0 errors, 4 tests passing.
+
+Verified against the live database:
+
+- `rag` holds 4 tables, all with RLS; 8 policies; 0 grants to `anon`.
+- `embeddings.embedding` is `halfvec(3072)` on an `hnsw` index using
+  `halfvec_ip_ops`.
+- `public` untouched throughout: 17 tables, 12 users, 2189 products.
+- Supabase security advisor: no findings against `rag`.
+- Isolation proven by role/claim switching — see `supabase/tests/rls_isolation.sql`.
+
+### Carried into Plan 2
+
+1. **PostgREST does not expose `rag`.** The `authenticator` role has no
+   `pgrst.db_schemas` override, so the project default (`public`,
+   `graphql_public`) applies and supabase-js cannot reach these tables yet.
+   Resolving this changes a setting shared with the other application, so it
+   needs an explicit decision rather than a silent migration.
+2. **`statement_timeout = 8s` on `authenticator`.** Hybrid retrieval must
+   complete inside that budget; it is a hard ceiling, not a target.
