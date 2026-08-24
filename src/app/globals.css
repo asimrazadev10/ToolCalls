@@ -1,0 +1,738 @@
+/* ISOBAR — the briefing desk.
+   Two rules hold the system together:
+   1. No drop shadows. Depth comes from hairlines and background steps.
+   2. Chroma is data, never decoration. The only saturated colour is the radar
+      scale, driven by precipitation probability. */
+
+:root {
+  /* Locked to light: there is deliberately no dark scheme in this file. */
+  color-scheme: light;
+
+  /* Pale chart stock, cooled toward green so it reads as instrument paper. */
+  --paper: #e7ebe6;
+  --paper-2: #dfe4de;
+  --surface: #f5f7f3;
+
+  /* Deep marine, the colour of chart printing. */
+  --ink: #152f38;
+  --ink-2: #5b7079;
+  --ink-3: #8c9ba1;
+
+  --rule: #ccd4cd;
+  --rule-strong: #b3bfb5;
+
+  /* Radar reflectivity scale, dry to extreme. Referenced from ui/constants.ts. */
+  --r0: #3e7c8c;
+  --r1: #4e9c63;
+  --r2: #bd8f1f;
+  --r3: #a32c5e;
+
+  --font-display: var(--f-display), ui-sans-serif, system-ui, sans-serif;
+  --font-prose: var(--f-prose), Georgia, serif;
+  --font-mono: var(--f-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Charts do not have rounded corners. */
+  --radius: 2px;
+
+  --rail-h: 82px;
+  --measure: 34em;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+/* --- Shared type roles --- */
+
+/* Chart lettering: condensed, tracked, small. Every label uses it. */
+.u-label {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 84;
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* Reaches a screen reader, never the page. Used for the status announcer, which
+   has to sit outside the transcript so streaming text is not re-read. */
+.u-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+/* --- Rail — the persistent header carrying the barograph --- */
+
+.rail {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: minmax(0, 260px) 1fr;
+  align-items: stretch;
+  height: var(--rail-h);
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.rail__id {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 22px;
+  border-right: 1px solid var(--rule);
+}
+
+.rail__mark {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 78;
+  font-weight: 700;
+  font-size: 27px;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  color: var(--ink);
+}
+
+.rail__tag {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  color: var(--ink-2);
+}
+
+.rail__instrument {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Set in HTML, not SVG: the instrument stretches horizontally to fill the rail
+   and would distort any text drawn inside it. */
+.rail__now {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 3px 0 3px 7px;
+  background: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  transition: color 700ms var(--ease);
+}
+.rail__instrument[data-active="true"] .rail__now { color: var(--r0); }
+
+/* --- Barograph — the signature. Drum paper scrolls left under a fixed pen. --- */
+
+.baro { display: block; width: 100%; height: 100%; }
+
+/* Outer group scrolls; inner group scales amplitude. Separated so the two
+   transforms never fight over the same property. */
+.baro__drum {
+  animation: drum 46s linear infinite;
+  transform-box: view-box;
+}
+/* Second layer runs slower, so the two traces separate as they scroll. */
+.baro__drum--slow { animation-duration: 79s; }
+
+.baro__amp {
+  transform-box: view-box;
+  transform-origin: 600px 41px;
+  transform: scaleY(1);
+  transition: transform 900ms var(--ease);
+}
+.baro[data-active="true"] .baro__amp { transform: scaleY(2.1); }
+
+.baro__trace {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.85;
+  transition: stroke 700ms var(--ease);
+}
+.baro[data-active="true"] .baro__trace { stroke: var(--r0); }
+
+.baro__ghost {
+  fill: none;
+  stroke: var(--ink-3);
+  stroke-width: 1;
+  opacity: 0.3;
+}
+
+.baro__grid { stroke: var(--rule); stroke-width: 1; }
+
+/* The "now" cursor: an instrument time marker, fixed at the live edge. */
+.baro__cursor { stroke: var(--ink); stroke-width: 1; opacity: 0.55; }
+.baro[data-active="true"] .baro__cursor {
+  stroke: var(--r0);
+  opacity: 1;
+  animation: cursor 1.4s ease-in-out infinite;
+}
+.baro__cursor-cap { fill: var(--ink); }
+.baro[data-active="true"] .baro__cursor-cap { fill: var(--r0); }
+
+/* One tile is 1200 user units wide and the path is drawn twice, so shifting
+   by exactly one tile loops without a seam. */
+@keyframes drum {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-1200px); }
+}
+@keyframes cursor {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/* --- Transcript --- */
+
+/* The shell is exactly one viewport and the transcript scrolls inside it, so the
+   desk below can never cover the last row. With the body scrolling instead, the
+   desk had to be sticky and overlapped whatever sat under it at scroll 0. */
+.shell {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.transcript {
+  flex: 1;
+  min-height: 0; /* without this a flex child refuses to shrink and overflows */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  width: 100%;
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 40px 24px 32px;
+}
+
+.transcript--open {
+  display: flex;
+  flex-direction: column;
+  /* `safe` centres only while it fits; past that it pins to the top so the
+     first line stays reachable instead of overflowing off the top edge. */
+  justify-content: safe center;
+}
+
+.open {
+  padding: 0 0 40px;
+  animation: rise 700ms var(--ease) both;
+}
+
+.open__head {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 84;
+  font-weight: 600;
+  font-size: clamp(34px, 5.4vw, 52px);
+  line-height: 1.04;
+  letter-spacing: -0.015em;
+  margin: 14px 0 12px;
+  max-width: 16ch;
+}
+
+.open__sub {
+  font-family: var(--font-prose);
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  max-width: 46ch;
+  margin: 0 0 34px;
+}
+
+.open__list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--rule);
+}
+
+.seed {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 4px;
+  border-bottom: 1px solid var(--rule);
+  background: none;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+  font-family: var(--font-prose);
+  font-size: 17px;
+  transition: padding-left 300ms var(--ease), color 200ms linear;
+  animation: rise 600ms var(--ease) both;
+}
+.seed:hover { padding-left: 12px; color: var(--ink); }
+.seed:hover .seed__go { opacity: 1; transform: translateX(0); }
+
+.seed__idx {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+}
+
+.seed__go {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity 300ms var(--ease), transform 300ms var(--ease);
+}
+
+.turn { animation: rise 500ms var(--ease) both; }
+.turn + .turn { margin-top: 40px; }
+
+.turn__meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.turn__meta::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+  transform-origin: left;
+  animation: draw 700ms var(--ease) both;
+}
+
+.ask {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 88;
+  font-weight: 600;
+  font-size: clamp(21px, 2.6vw, 27px);
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin: 0;
+  max-width: 30ch;
+}
+
+/* The agent's answer. Serif, because this part is prose — a bulletin read
+   aloud — and everything around it is instrument data. */
+.brief {
+  font-family: var(--font-prose);
+  font-size: 19px;
+  line-height: 1.68;
+  color: var(--ink);
+  max-width: var(--measure);
+  margin: 22px 0 0;
+  animation: rise 520ms var(--ease) both;
+}
+.brief p { margin: 0 0 0.9em; }
+.brief p:last-child { margin-bottom: 0; }
+
+/* --- Tool log — teleprinter line for each call the model makes --- */
+
+.tool {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+  padding: 9px 0;
+  margin-top: 18px;
+  border-top: 1px solid var(--rule);
+  animation: rise 400ms var(--ease) both;
+}
+.tool__name { color: var(--ink); font-weight: 500; }
+.tool__arg { color: var(--ink-2); }
+.tool__state { margin-left: auto; color: var(--ink-3); }
+.tool__state[data-ok="false"] { color: var(--r3); }
+
+/* The only "loading" motion inside the transcript. */
+.tool__wait::after {
+  content: "···";
+  letter-spacing: 0.18em;
+  animation: wait 1.3s steps(4, end) infinite;
+}
+
+@keyframes wait {
+  0%   { opacity: 0.25; }
+  50%  { opacity: 1; }
+  100% { opacity: 0.25; }
+}
+
+/* --- Station card — the tool result as an instrument readout --- */
+
+.station {
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  /* figure carries a 40px user-agent margin; clear it so the card's edges line
+     up with the tool log above it. */
+  margin: 4px 0 0;
+  overflow: hidden;
+  animation: wipe 620ms var(--ease) both;
+}
+
+.station__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.station__place {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 86;
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: 0.005em;
+  margin: 0;
+}
+
+.station__zone {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+}
+
+.station__now {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 22px;
+  align-items: center;
+  padding: 22px 20px;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* An instrument shows its digits in the face it prints its logs in. */
+.station__temp {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: clamp(46px, 8vw, 62px);
+  line-height: 0.9;
+  letter-spacing: -0.035em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.station__cond {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 88;
+  font-weight: 500;
+  font-size: 17px;
+  line-height: 1.3;
+  color: var(--ink);
+  text-transform: lowercase;
+}
+
+.station__unit {
+  font-size: 0.36em;
+  letter-spacing: 0;
+  margin-left: 0.12em;
+  color: var(--ink-2);
+  /* Sits toward the middle of the numerals, the way a gauge prints its unit —
+     raised any further and it reads as a footnote marker. */
+  vertical-align: 0.5em;
+}
+
+.station__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 30px;
+  margin-top: 10px;
+}
+
+.stat { display: flex; align-items: baseline; gap: 7px; }
+.stat__v {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.rows { padding: 6px 20px 16px; }
+
+.row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 118px 132px;
+  align-items: center;
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--rule);
+  transition: background-color 200ms linear;
+  animation: rise 520ms var(--ease) both;
+}
+.row:last-child { border-bottom: 0; }
+.row:hover { background: var(--paper-2); }
+
+.row__key {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.row__label {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 88;
+  font-size: 14px;
+  color: var(--ink-2);
+  text-transform: lowercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* When the slot holds a measurement rather than a description, it follows the
+   rule the rest of the interface follows: every number is set in mono. */
+.row__label--num {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.row__aside {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.row__aside span { color: var(--ink-3); }
+.row__aside .u-label { margin-right: 5px; }
+
+/* Precipitation on the radar scale. --bar is set per row from the value. */
+.meter { display: flex; align-items: center; gap: 9px; }
+
+.meter__track {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  background: var(--paper-2);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.meter__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  height: 100%;
+  background: var(--bar, var(--r0));
+  transform-origin: left center;
+  animation: grow 800ms var(--ease) both;
+}
+
+.meter__v {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  width: 30px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Tool failure — states what broke and what to do, without apologising --- */
+
+.fault {
+  margin-top: 4px;
+  padding: 15px 18px;
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-left: 2px solid var(--r3);
+  border-radius: var(--radius);
+  animation: wipe 560ms var(--ease) both;
+}
+.fault__what {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 88;
+  font-weight: 500;
+  font-size: 15px;
+  margin: 6px 0 5px;
+}
+.fault__fix {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  margin: 0;
+}
+
+/* --- Desk — the input bar --- */
+
+/* No longer sticky: it is the last row of a full-height flex column, so it sits
+   at the bottom by construction and never paints over the transcript. */
+.desk {
+  flex: none;
+  background: var(--paper);
+  border-top: 1px solid var(--rule-strong);
+}
+
+.desk__inner {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: end;
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 16px 24px 20px;
+}
+
+.field { position: relative; }
+
+.field__input {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--rule-strong);
+  padding: 10px 2px 10px;
+  font-family: var(--font-prose);
+  font-size: 18px;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 250ms linear;
+}
+.field__input::placeholder { color: var(--ink-3); }
+.field__input:focus { border-color: var(--ink); }
+/* The field goes read-only rather than disabled while a briefing streams, so it
+   keeps focus. Style both so the dimming still reads the same. */
+.field__input:disabled,
+.field__input:read-only { opacity: 0.5; }
+
+/* The rule under the field draws in on focus rather than just recolouring. */
+.field__rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--ink);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 380ms var(--ease);
+}
+.field__input:focus ~ .field__rule { transform: scaleX(1); }
+
+.btn {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 86;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  padding: 13px 22px;
+  cursor: pointer;
+  transition: background-color 200ms linear, color 200ms linear, opacity 200ms linear;
+}
+.btn:hover:not(:disabled) { background: #0d2028; }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.btn--stop {
+  background: transparent;
+  color: var(--ink);
+}
+.btn--stop:hover:not(:disabled) { background: var(--paper-2); }
+
+.desk__note {
+  grid-column: 1 / -1;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  letter-spacing: 0.03em;
+}
+.desk__note[data-error="true"] { color: var(--r3); }
+
+/* --- Motion --- */
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes draw {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes wipe {
+  from { clip-path: inset(0 100% 0 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+@keyframes grow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .baro__drum { animation: none; }
+}
+
+/* --- Narrow screens --- */
+
+@media (max-width: 720px) {
+  :root { --rail-h: 68px; }
+  .rail { grid-template-columns: minmax(0, 168px) 1fr; }
+  .rail__id { padding: 0 16px; }
+  .rail__mark { font-size: 21px; }
+  .rail__tag { font-size: 9.5px; }
+  .transcript { padding: 28px 18px 24px; }
+  .desk__inner { padding: 14px 18px 18px; }
+  .station__now { grid-template-columns: 1fr; gap: 14px; }
+  /* Stacked: key and figure on one line, then the label, then the meter
+     across the full width so it stays readable at either end of the scale. */
+  .row {
+    grid-template-columns: auto 1fr;
+    grid-template-areas: "key aside" "label label" "meter meter";
+    gap: 5px 14px;
+    padding: 13px 0;
+  }
+  .row__key { grid-area: key; }
+  .row__aside { grid-area: aside; text-align: right; }
+  .row__label { grid-area: label; white-space: normal; }
+  .row .meter { grid-area: meter; margin-top: 3px; }
+}
