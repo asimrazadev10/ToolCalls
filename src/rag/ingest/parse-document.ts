@@ -15,6 +15,7 @@
  */
 
 import { detectFileType } from './file-type-detection';
+import { measureHeadingScale, renderLinesAsMarkdown } from './heading-inference';
 import {
   type PageExtractionVerdict,
   assessPageExtraction,
@@ -53,11 +54,23 @@ async function parsePdf(
 ): Promise<ParsedDocument> {
   const pages = await extractPdfPages(bytes);
 
+  // Measured across every page at once, never per page. A title page holds
+  // nothing but large type, and measured alone would declare its title to be
+  // body text — finding no headings anywhere in the document.
+  const headingScale = measureHeadingScale(pages.flatMap((page) => page.lines));
+
   const parseReport: PageParseRecord[] = [];
   const pageTexts: string[] = [];
 
   for (const page of pages) {
+    // Two readings of the same page. Extraction quality is judged on the plain
+    // text, because heading markers would inflate the character count and make
+    // a sparse page look denser than it is. What we keep is the marked-up
+    // version, because that is what the chunker splits on.
     const normalizedText = normalizeExtractedText(page.text);
+    const markdownForPage = normalizeExtractedText(
+      renderLinesAsMarkdown(page.lines, headingScale),
+    );
     const assessment = assessPageExtraction({
       extractedText: normalizedText,
       pageWidthInPoints: page.widthInPoints,
@@ -65,7 +78,7 @@ async function parsePdf(
     });
 
     if (assessment.verdict === 'usable') {
-      pageTexts.push(normalizedText);
+      pageTexts.push(markdownForPage);
       parseReport.push({
         pageNumber: page.pageNumber,
         verdict: 'usable',
@@ -76,7 +89,7 @@ async function parsePdf(
     }
 
     if (!transcribePageWithVision) {
-      pageTexts.push(normalizedText);
+      pageTexts.push(markdownForPage);
       parseReport.push({
         pageNumber: page.pageNumber,
         verdict: 'needs-vision',
@@ -97,7 +110,7 @@ async function parsePdf(
       });
     } catch (cause) {
       // One page's transcription failing must not cost the whole document.
-      pageTexts.push(normalizedText);
+      pageTexts.push(markdownForPage);
       parseReport.push({
         pageNumber: page.pageNumber,
         verdict: 'needs-vision',

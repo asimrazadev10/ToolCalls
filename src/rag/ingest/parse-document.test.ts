@@ -38,6 +38,35 @@ describe('a PDF whose text layer is intact', () => {
   });
 });
 
+describe('structure recovered from typography', () => {
+  it('renders the document title and section headings as Markdown headings', async () => {
+    const parsed = await parseDocument({ bytes: await fixture('two-page-text.pdf') });
+
+    expect(parsed.markdown).toContain('# Residential Lease');
+    expect(parsed.markdown).toContain('## Section 8 Pets');
+  });
+
+  it('levels a heading on page two against the body of the whole document', async () => {
+    // Page two carries a 16pt heading and 10pt body but no 24pt title. Measured
+    // alone it would still be levelled correctly only by luck; measured with
+    // page one it is unambiguously a level-two heading.
+    const parsed = await parseDocument({ bytes: await fixture('two-page-text.pdf') });
+
+    // Asserted on exact lines: '## Section 9 Noise' contains the substring
+    // '# Section 9 Noise', so a substring check cannot tell the levels apart.
+    const lines = parsed.markdown.split('\n');
+
+    expect(lines).toContain('## Section 9 Noise');
+    expect(lines).not.toContain('# Section 9 Noise');
+  });
+
+  it('leaves body text unmarked', async () => {
+    const parsed = await parseDocument({ bytes: await fixture('two-page-text.pdf') });
+
+    expect(parsed.markdown).not.toContain('# 1. The tenant');
+  });
+});
+
 describe('a PDF with no text layer', () => {
   it('sends exactly the failing page to the transcriber', async () => {
     const transcribePageWithVision = vi.fn().mockResolvedValue('Recovered by vision.');
