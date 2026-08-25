@@ -26,6 +26,18 @@ const MINIMUM_CHARACTERS_PER_SQUARE_INCH = 8;
 const MINIMUM_AREA_FOR_DENSITY_TEST_IN_SQUARE_INCHES = 20;
 
 /**
+ * Enough extracted characters that the page is real regardless of how much
+ * white space surrounds them. Chapter openings, signature pages and section
+ * dividers are legitimately sparse, and density alone condemns all of them —
+ * which spends the scarcest resource re-reading text already in hand.
+ *
+ * A caption stranded on a scanned page falls far below this, so the two cases
+ * still separate: what matters is how much real text there is, not how much of
+ * the page it covers.
+ */
+const CHARACTERS_THAT_MAKE_A_PAGE_REAL_REGARDLESS_OF_DENSITY = 80;
+
+/**
  * Share of characters that must belong to words. A broken font encoding
  * extracts as replacement characters and stray symbols, which look like text
  * to a length check but carry no meaning.
@@ -83,7 +95,8 @@ export function assessPageExtraction(input: PageExtractionInput): PageExtraction
   } else {
     if (
       areaInSquareInches >= MINIMUM_AREA_FOR_DENSITY_TEST_IN_SQUARE_INCHES &&
-      charactersPerSquareInch < MINIMUM_CHARACTERS_PER_SQUARE_INCH
+      charactersPerSquareInch < MINIMUM_CHARACTERS_PER_SQUARE_INCH &&
+      nonSpaceCharacterCount < CHARACTERS_THAT_MAKE_A_PAGE_REAL_REGARDLESS_OF_DENSITY
     ) {
       reasons.push('too little text for the page area');
     }

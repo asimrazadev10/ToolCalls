@@ -59,6 +59,29 @@ describe('a page that needs re-reading by vision', () => {
   });
 });
 
+describe('a sparse page that is nonetheless real', () => {
+  it('accepts enough real words however much white space surrounds them', () => {
+    // A chapter opening, a signature page, a section divider: little text on a
+    // full page, but the text that is there extracted perfectly. Sending these
+    // to vision spends the scarcest resource to re-read what we already have.
+    const chapterOpening =
+      'Section 8 - Pets\n\nNo animals may be kept on the premises without the ' +
+      'prior written consent of the landlord.';
+
+    const assessment = assessPageExtraction({ extractedText: chapterOpening, ...LETTER_PAGE });
+
+    expect(assessment.verdict).toBe('usable');
+  });
+
+  it('still refuses a caption stranded on an otherwise empty page', () => {
+    // The discriminating difference is how much real text there is, not how
+    // much of the page it covers.
+    const assessment = assessPageExtraction({ extractedText: 'Fig. 4', ...LETTER_PAGE });
+
+    expect(assessment.verdict).toBe('needs-vision');
+  });
+});
+
 describe('the measurements behind the verdict', () => {
   it('reports character density against page area, not raw character count', () => {
     const dense = assessPageExtraction({ extractedText: prose(30), ...LETTER_PAGE });
