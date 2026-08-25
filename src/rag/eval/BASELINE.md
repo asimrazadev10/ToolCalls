@@ -1,67 +1,72 @@
 # Evaluation baseline
 
-Recorded 2026-08-25, against `lease-detailed.pdf` (1 page, 4 chunks).
 Reproduce with `npm run eval`.
+
+## Current — 2026-08-25, four-document corpus
+
+Corpus: 4 documents, 17 chunks (`src/rag/eval/__corpus__`).
 
 | metric | value |
 | --- | --- |
-| retrieval questions | 5 |
+| retrieval questions | 13 |
 | mean recall@5 | 1.000 |
-| mean reciprocal rank | 0.900 |
-| mean nDCG@5 | 0.926 |
-| answered and grounded | 5/5 |
-| refusals correct | 2/2 |
+| **mean reciprocal rank** | **0.801** |
+| **mean nDCG@5** | **0.851** |
+| answered and grounded | 13/13 |
+| refusals correct | 3/3 |
 
-Per question:
-
-    PASS  paraphrase-assistance-dog        recall@5=1.00 mrr=1.00 ndcg=1.00 answered
-    PASS  paraphrase-quiet-hours           recall@5=1.00 mrr=0.50 ndcg=0.63 answered
-    PASS  natural-language-lexical         recall@5=1.00 mrr=1.00 ndcg=1.00 answered
-    PASS  exact-token                      recall@5=1.00 mrr=1.00 ndcg=1.00 answered
-    PASS  figure-lookup                    recall@5=1.00 mrr=1.00 ndcg=1.00 answered
+    PASS  paraphrase-assistance-dog        recall@5=1.00 mrr=1.00 ndcg=1.00
+    PASS  paraphrase-quiet-hours           recall@5=1.00 mrr=0.33 ndcg=0.50
+    PASS  natural-language-lexical         recall@5=1.00 mrr=1.00 ndcg=1.00
+    PASS  exact-token                      recall@5=1.00 mrr=1.00 ndcg=1.00
+    PASS  figure-lookup-deposit            recall@5=1.00 mrr=1.00 ndcg=1.00
+    PASS  confusable-notice-tenancy        recall@5=1.00 mrr=0.50 ndcg=0.63
+    PASS  confusable-notice-employment     recall@5=1.00 mrr=1.00 ndcg=1.00
+    PASS  confusable-excess-not-deposit    recall@5=1.00 mrr=1.00 ndcg=1.00
+    PASS  confusable-flood                 recall@5=1.00 mrr=1.00 ndcg=1.00
+    PASS  conditional-taxi                 recall@5=1.00 mrr=1.00 ndcg=1.00
+    PASS  figure-lookup-broadband          recall@5=1.00 mrr=0.25 ndcg=0.43
+    PASS  carry-over-leave                 recall@5=1.00 mrr=1.00 ndcg=1.00
+    PASS  exclusion-lookup                 recall@5=1.00 mrr=0.33 ndcg=0.50
     PASS  refusal-absent-topic             refused
     PASS  refusal-plausible-but-unstated   refused
+    PASS  refusal-wrong-document-plausible refused
 
-## Re-runs
+## Recall@5 is still not the number to watch
 
-| date | change under test | recall@5 | MRR | nDCG@5 | grounded | refusals |
-| --- | --- | --- | --- | --- | --- | --- |
-| 2026-08-25 | baseline | 1.000 | 0.900 | 0.926 | 5/5 | 2/2 |
-| 2026-08-25 | page provenance in chunks | 1.000 | 0.900 | 0.926 | 5/5 | 2/2 |
+At 17 chunks the top five is 29% of the corpus, so recall stays saturated.
+It has to grow by an order of magnitude before recall discriminates anything.
 
-Identical, which is the result that was wanted: carrying page numbers through
-chunking was meant to add information to a citation, not to change what
-retrieval finds. Without the harness that claim would have been an assumption.
+**Reciprocal rank and nDCG are the live metrics**, and moving from one document
+to four made them useful: 0.900 to 0.801 and 0.926 to 0.851. Nothing regressed
+— distractors simply exist now, which is what a real corpus looks like. Three
+questions carry all of the loss:
 
-## Read recall@5 with suspicion at this corpus size
+| question | first relevant hit |
+| --- | --- |
+| `figure-lookup-broadband` | rank 4 |
+| `paraphrase-quiet-hours` | rank 3 |
+| `exclusion-lookup` | rank 3 |
 
-The corpus holds four chunks and recall is measured at five, so every relevant
-chunk is inside the window by construction. **Mean recall@5 of 1.000 is close
-to arithmetically unavoidable here and should not be quoted as a result.**
+That is the headroom any reranking experiment has to beat. A lever that cannot
+move these three is not earning its latency.
 
-The informative numbers are reciprocal rank and nDCG, which measure ordering
-rather than membership, and they already show something: on
-`paraphrase-quiet-hours` the right chunk came back at rank 2, not rank 1. That
-is a real if minor ranking weakness, and the only reason it is visible is that
-MRR does not round it away.
+## What the confusables proved
 
-Recall becomes meaningful once the corpus is large enough that the top five is
-a genuine selection — several documents and a few hundred chunks. Growing the
-corpus is the next improvement to this harness, ahead of adding questions.
+`notice period` is a heading in both the lease and the handbook; `excess` and
+`deposit` are both refundable-sounding sums in different documents; flood
+appears twice. All four confusable questions retrieved the right source, and
+`refusal-wrong-document-plausible` — asking for the excess on a broadband
+contract, where the word exists in the corpus but not in that document —
+correctly refused rather than answering from the insurance policy.
 
-## What each question is for
+That last one is the failure mode that most resembles success, and it is the
+strongest evidence so far that the heading breadcrumb is doing real work.
 
-The set is deliberately not seven versions of the same question. Each targets a
-capability that has already broken, or plausibly could:
+## History
 
-- **paraphrase-\*** — dense retrieval, where question and document share almost
-  no vocabulary.
-- **natural-language-lexical** — the exact case where the lexical arm was
-  silently dead, because `websearch_to_tsquery` ANDs every term and a
-  conversational question therefore matched nothing.
-- **exact-token** — the rare token dense retrieval blurs.
-- **figure-lookup** — an answer that is a number and a period, both of which
-  must survive chunking and be quoted exactly.
-- **refusal-\*** — the failure this system most needs to avoid. The second is
-  the harder one: a lease plausibly answers "how many people may live here",
-  so related passages retrieve and the model must still decline.
+| date | corpus | change under test | recall@5 | MRR | nDCG@5 | grounded | refusals |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-08-25 | 1 doc, 4 chunks | first baseline | 1.000 | 0.900 | 0.926 | 5/5 | 2/2 |
+| 2026-08-25 | 1 doc, 4 chunks | page provenance | 1.000 | 0.900 | 0.926 | 5/5 | 2/2 |
+| 2026-08-25 | 4 docs, 17 chunks | corpus grown, 16 questions | 1.000 | 0.801 | 0.851 | 13/13 | 3/3 |

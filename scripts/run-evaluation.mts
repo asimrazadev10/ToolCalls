@@ -8,7 +8,7 @@
  *
  *   npx tsx scripts/run-evaluation.mts
  */
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { parseDocument } from '../src/rag/ingest/parse-document.ts';
 import { chunkMarkdownDocument } from '../src/rag/ingest/chunker.ts';
 import { composeEmbeddingInput } from '../src/rag/embed/embedding-input.ts';
@@ -24,7 +24,10 @@ import {
 } from '../src/rag/eval/retrieval-metrics.ts';
 
 const K = 5;
-const EVAL_DOCUMENT_ID = 'e7a10000-0000-4000-8000-00000000e7a1';
+
+/** Stable per corpus file, so a re-run replaces its chunks rather than adding. */
+const evaluationDocumentId = (index: number) =>
+  `e7a10000-0000-4000-8000-0000000000${String(index).padStart(2, '0')}`;
 
 interface GoldenQuestion {
   id: string;
@@ -56,27 +59,35 @@ if (!accessToken) throw new Error('evaluation needs a signed-in user; see EVAL_E
 const client = createMarginaliaClient(config, accessToken);
 
 // --- ingest the corpus ------------------------------------------------------
-const bytes = new Uint8Array(await readFile(new URL(`../${goldenSet.corpus}`, import.meta.url)));
-const parsed = await parseDocument({ bytes });
-const chunks = chunkMarkdownDocument(parsed.markdown, { targetTokens: 160 });
-const vectors = await embed({
-  texts: chunks.map(composeEmbeddingInput),
-  taskType: 'RETRIEVAL_DOCUMENT',
-});
-const stored = await storeDocumentChunks(
-  client,
-  EVAL_DOCUMENT_ID,
-  chunks.map((chunk, index) => ({
-    ordinal: chunk.ordinal,
-    content: chunk.content,
-    tokenCount: chunk.estimatedTokenCount,
-    headingPath: chunk.headingPath,
-    pageFrom: chunk.pageFrom,
-    pageTo: chunk.pageTo,
-    embedding: vectors[index],
-  })),
-);
-console.log(`corpus: ${parsed.pageCount} pages -> ${stored} chunks\n`);
+const corpusDirectory = new URL(`../${goldenSet.corpus}/`, import.meta.url);
+const corpusFiles = (await readdir(corpusDirectory)).filter((name) => name.endsWith('.pdf')).sort();
+
+let totalChunks = 0;
+for (const [index, filename] of corpusFiles.entries()) {
+  const bytes = new Uint8Array(await readFile(new URL(filename, corpusDirectory)));
+  const parsed = await parseDocument({ bytes });
+  const chunks = chunkMarkdownDocument(parsed.markdown, { targetTokens: 160 });
+  const vectors = await embed({
+    texts: chunks.map(composeEmbeddingInput),
+    taskType: 'RETRIEVAL_DOCUMENT',
+  });
+  const stored = await storeDocumentChunks(
+    client,
+    evaluationDocumentId(index),
+    chunks.map((chunk, chunkIndex) => ({
+      ordinal: chunk.ordinal,
+      content: chunk.content,
+      tokenCount: chunk.estimatedTokenCount,
+      headingPath: chunk.headingPath,
+      pageFrom: chunk.pageFrom,
+      pageTo: chunk.pageTo,
+      embedding: vectors[chunkIndex],
+    })),
+  );
+  totalChunks += stored;
+  console.log(`  ${filename.padEnd(28)} ${parsed.pageCount}pp -> ${stored} chunks`);
+}
+console.log(`corpus: ${corpusFiles.length} documents, ${totalChunks} chunks\n`);
 
 // --- run the questions ------------------------------------------------------
 const rows: string[] = [];

@@ -1,11 +1,11 @@
 {
-  "corpus": "src/rag/ingest/__fixtures__/lease-detailed.pdf",
-  "note": "Each question targets one capability. A set where every question is answerable the same way measures nothing: this session shipped a retrieval arm that was dead for natural-language questions precisely because every test used keywords.",
+  "corpus": "src/rag/eval/__corpus__",
+  "note": "Four unrelated documents, because a corpus of one cannot test whether retrieval picks the right source. Several questions turn on words that appear in more than one document with different meanings: 'notice period' ends a tenancy in the lease and a job in the handbook; 'excess' and 'deposit' are both sums you might get back; flood appears in two. Each question names the capability it exists to test, so a failure says what broke rather than only that something did.",
   "questions": [
     {
       "id": "paraphrase-assistance-dog",
       "question": "am I allowed to have a guide dog in the flat?",
-      "targets": "dense retrieval — the document says 'assistance dog', the question says 'guide dog', and no word is shared beyond 'dog'",
+      "targets": "dense retrieval — the lease says 'assistance dog', the question says 'guide dog'",
       "expectedContentMarkers": ["assistance dog"],
       "expectRefusal": false
     },
@@ -19,35 +19,98 @@
     {
       "id": "natural-language-lexical",
       "question": "what are the rules about keeping animals?",
-      "targets": "the lexical arm on a natural-language question — the exact case that was silently dead, since websearch_to_tsquery ANDs every term",
+      "targets": "the lexical arm on a conversational question — the case that was silently dead",
       "expectedContentMarkers": ["No animal may be kept"],
       "expectRefusal": false
     },
     {
       "id": "exact-token",
       "question": "PM2.5",
-      "targets": "the lexical arm on a rare token dense retrieval tends to blur",
+      "targets": "the lexical arm on a rare token dense retrieval blurs",
       "expectedContentMarkers": ["PM2.5"],
       "expectRefusal": false
     },
     {
-      "id": "figure-lookup",
+      "id": "figure-lookup-deposit",
       "question": "how much is the deposit and when do I get it back?",
-      "targets": "a question whose answer is a figure and a period, both of which must be quoted exactly",
+      "targets": "a figure and a period that must both survive chunking and be quoted exactly",
       "expectedContentMarkers": ["2,400", "10 working days"],
+      "expectRefusal": false
+    },
+    {
+      "id": "confusable-notice-tenancy",
+      "question": "how much notice do I have to give my landlord before moving out?",
+      "targets": "picking the right source — 'notice period' is a heading in both the lease and the handbook",
+      "expectedContentMarkers": ["two months written notice"],
+      "expectRefusal": false
+    },
+    {
+      "id": "confusable-notice-employment",
+      "question": "how much notice must I give if I resign after three years?",
+      "targets": "the same confusable from the other side, and a condition (after two years) that changes the answer",
+      "expectedContentMarkers": ["eight weeks"],
+      "expectRefusal": false
+    },
+    {
+      "id": "confusable-excess-not-deposit",
+      "question": "what excess do I pay on an insurance claim?",
+      "targets": "'excess' and 'deposit' are both refundable-sounding sums in different documents",
+      "expectedContentMarkers": ["250 pounds"],
+      "expectRefusal": false
+    },
+    {
+      "id": "confusable-flood",
+      "question": "is flood damage covered?",
+      "targets": "flood appears in the insurance policy and nowhere useful in the lease",
+      "expectedContentMarkers": ["Damage caused by flood is covered"],
+      "expectRefusal": false
+    },
+    {
+      "id": "conditional-taxi",
+      "question": "can I claim a taxi home after a late meeting?",
+      "targets": "an answer that is conditional rather than a flat yes or no",
+      "expectedContentMarkers": ["Taxi fares are"],
+      "expectRefusal": false
+    },
+    {
+      "id": "figure-lookup-broadband",
+      "question": "what happens if my broadband is down for a week?",
+      "targets": "a rate that must be quoted exactly, from the least prominent document",
+      "expectedContentMarkers": ["8.40 pounds"],
+      "expectRefusal": false
+    },
+    {
+      "id": "carry-over-leave",
+      "question": "can I carry unused holiday into next year?",
+      "targets": "a limit plus a deadline, both of which must come through together",
+      "expectedContentMarkers": ["five days"],
+      "expectRefusal": false
+    },
+    {
+      "id": "exclusion-lookup",
+      "question": "what is not covered if the house is empty for a long time?",
+      "targets": "an exclusion, which is stated as a negative and is easy to answer backwards",
+      "expectedContentMarkers": ["60 consecutive days"],
       "expectRefusal": false
     },
     {
       "id": "refusal-absent-topic",
       "question": "how much does a parking permit cost?",
-      "targets": "refusal — the lease never mentions parking, and a confident invented figure is the worst failure this system can produce",
+      "targets": "refusal — no document mentions parking",
       "expectedContentMarkers": [],
       "expectRefusal": true
     },
     {
       "id": "refusal-plausible-but-unstated",
       "question": "how many people are allowed to live at the property?",
-      "targets": "refusal on a question a lease plausibly answers but this one does not — harder than an absent topic, because related passages will retrieve",
+      "targets": "refusal on something a lease plausibly answers but this one does not, so related passages retrieve and the model must still decline",
+      "expectedContentMarkers": [],
+      "expectRefusal": true
+    },
+    {
+      "id": "refusal-wrong-document-plausible",
+      "question": "what is the excess on my broadband contract?",
+      "targets": "refusal where the word exists in the corpus but not in the document asked about — the failure mode that looks most like a right answer",
       "expectedContentMarkers": [],
       "expectRefusal": true
     }
