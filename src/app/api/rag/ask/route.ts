@@ -2,6 +2,7 @@ import { createGeminiAnswerGenerator } from '@/rag/answer/gemini-answer-generato
 import { answerFromChunks } from '@/rag/answer/answer-question';
 import { createMarginaliaClient, readSupabaseConfig } from '@/rag/db/client';
 import { searchDocuments } from '@/rag/db/document-repository';
+import { MARGINALIA_LIMITS, claimRequestSlot } from '@/rag/db/rate-limit';
 import { createGeminiEmbedder } from '@/rag/embed/gemini-embedder';
 
 /** Embedding, retrieval and generation are three round trips. */
@@ -43,6 +44,17 @@ export async function POST(request: Request) {
   try {
     const config = readSupabaseConfig(process.env);
     const client = createMarginaliaClient(config, accessToken);
+
+    // Counted in Postgres, so the ceiling holds however many instances are
+    // serving. Checked before any model call, since the point is to not spend
+    // one.
+    const slot = await claimRequestSlot(client, MARGINALIA_LIMITS.ask);
+    if (!slot.allowed) {
+      return Response.json(
+        { error: `You are asking faster than the desk can read. Try again in ${slot.retryAfterSeconds}s.` },
+        { status: 429, headers: { 'retry-after': String(slot.retryAfterSeconds) } },
+      );
+    }
 
     // The question is embedded as a query, not as a passage. Verified against
     // the live model: the two task types produce measurably different vectors.

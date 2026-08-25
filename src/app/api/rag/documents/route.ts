@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { MAX_UPLOAD_BYTES } from '@/rag/config';
 import { createMarginaliaClient, readSupabaseConfig } from '@/rag/db/client';
 import { storeDocumentChunks } from '@/rag/db/document-repository';
+import { MARGINALIA_LIMITS, claimRequestSlot } from '@/rag/db/rate-limit';
 import { composeEmbeddingInput } from '@/rag/embed/embedding-input';
 import { createGeminiEmbedder } from '@/rag/embed/gemini-embedder';
 import { chunkMarkdownDocument } from '@/rag/ingest/chunker';
@@ -39,6 +40,17 @@ export async function POST(request: Request) {
   try {
     const config = readSupabaseConfig(process.env);
     const client = createMarginaliaClient(config, accessToken);
+
+    // Held far tighter than asking: a document costs an embedding call for
+    // every chunk in it, so a handful of uploads can exhaust a whole minute's
+    // provider allowance.
+    const slot = await claimRequestSlot(client, MARGINALIA_LIMITS.upload);
+    if (!slot.allowed) {
+      return Response.json(
+        { error: `That is a lot of documents at once. Try again in ${slot.retryAfterSeconds}s.` },
+        { status: 429, headers: { 'retry-after': String(slot.retryAfterSeconds) } },
+      );
+    }
 
     // Parsing first: a file we cannot read should never leave a row behind.
     const parsed = await parseDocument({ bytes });
