@@ -22,8 +22,19 @@ import {
   reciprocalRank,
   normalizedDiscountedCumulativeGain,
 } from '../src/rag/eval/retrieval-metrics.ts';
+import { createGeminiPassageReranker } from '../src/rag/retrieve/gemini-reranker.ts';
+import { reorderByRankedIds } from '../src/rag/retrieve/reorder-by-ranked-ids.ts';
+import { generateText } from 'ai';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 
 const K = 5;
+
+/**
+ * A/B switch. `RERANK=1 npm run eval` measures the reranker against the
+ * recorded baseline; without it the run is the baseline itself. A flag rather
+ * than an edit, so the two runs differ in exactly one thing.
+ */
+const RERANK_ENABLED = process.env.RERANK === '1';
 
 /** Stable per corpus file, so a re-run replaces its chunks rather than adding. */
 const evaluationDocumentId = (index: number) =>
@@ -39,6 +50,32 @@ interface GoldenQuestion {
 const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY!;
 const config = readSupabaseConfig(process.env);
 const embed = createGeminiEmbedder({ apiKey });
+
+const google = createGoogleGenerativeAI({ apiKey });
+// Counted, because the reranker swallows its own failures by design: a
+// reranker must not be able to break retrieval. That safety property also
+// hides quota errors, which would silently understate any measured gain.
+let rerankCallsAttempted = 0;
+let rerankCallsFailed = 0;
+
+const rerank = createGeminiPassageReranker({
+  generate: async ({ system, user, signal }) => {
+    rerankCallsAttempted += 1;
+    try {
+      const { text } = await generateText({
+        model: google('gemini-3.5-flash-lite'),
+        system,
+        prompt: user,
+        abortSignal: signal,
+      });
+      return text;
+    } catch (cause) {
+      rerankCallsFailed += 1;
+      console.log(`    rerank failed: ${cause instanceof Error ? cause.message.slice(0, 90) : cause}`);
+      throw cause;
+    }
+  },
+});
 
 const goldenSet = JSON.parse(
   await readFile(new URL('../src/rag/eval/golden-set.json', import.meta.url), 'utf8'),
@@ -101,11 +138,23 @@ let answeredCorrectly = 0;
 
 for (const golden of goldenSet.questions) {
   const [queryEmbedding] = await embed({ texts: [golden.question], taskType: 'RETRIEVAL_QUERY' });
-  const hits = await searchDocuments(client, {
+  const fused = await searchDocuments(client, {
     queryEmbedding,
     queryText: golden.question,
     limit: 20,
   });
+
+  // Rerank the fused candidates, never the whole corpus: the arms decide what
+  // is worth considering, the reranker only decides the order among those.
+  const hits = RERANK_ENABLED
+    ? reorderByRankedIds(
+        fused,
+        await rerank({
+          question: golden.question,
+          passages: fused.map((hit) => ({ id: hit.chunkId, text: hit.content })),
+        }),
+      )
+    : fused;
 
   // Relevance by content, not by id: ids change on every re-ingest, and a
   // golden set that must be rebuilt after each parser fix will not be kept.
@@ -147,10 +196,13 @@ for (const golden of goldenSet.questions) {
 }
 
 console.log(rows.join('\n'));
-console.log('\n--- baseline ---');
+console.log(`\n--- ${RERANK_ENABLED ? 'with reranking' : 'baseline'} ---`);
 console.log(`  retrieval questions   ${retrievalQuestions}`);
 console.log(`  mean recall@${K}        ${(recallTotal / retrievalQuestions).toFixed(3)}`);
 console.log(`  mean reciprocal rank  ${(mrrTotal / retrievalQuestions).toFixed(3)}`);
 console.log(`  mean nDCG@${K}          ${(ndcgTotal / retrievalQuestions).toFixed(3)}`);
 console.log(`  answered and grounded ${answeredCorrectly}/${retrievalQuestions}`);
 console.log(`  refusals correct      ${refusalCorrect}/${refusalQuestions}`);
+if (RERANK_ENABLED) {
+  console.log(`  rerank calls          ${rerankCallsAttempted}, ${rerankCallsFailed} failed`);
+}

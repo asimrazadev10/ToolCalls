@@ -32,6 +32,59 @@ Corpus: 4 documents, 17 chunks (`src/rag/eval/__corpus__`).
     PASS  refusal-plausible-but-unstated   refused
     PASS  refusal-wrong-document-plausible refused
 
+## Reranking — measured, not assumed
+
+`RERANK=1 npm run eval` reorders the fused candidates with a listwise Gemini
+call before answering. Against the same corpus and questions:
+
+| | recall@5 | MRR | nDCG@5 | grounded | refusals |
+| --- | --- | --- | --- | --- | --- |
+| fused only | 1.000 | 0.801 | 0.851 | 13/13 | 3/3 |
+| **with reranking** | 1.000 | **0.904** | **0.928** | 13/13 | 3/3 |
+
+It moved two of the three questions it was supposed to:
+
+| question | before | after |
+| --- | --- | --- |
+| `paraphrase-quiet-hours` | rank 3 | rank 1 |
+| `exclusion-lookup` | rank 3 | rank 1 |
+| `figure-lookup-broadband` | rank 4 | rank 4 — unchanged |
+
+Nothing regressed: refusals stayed 3/3 and every answer stayed grounded.
+
+### Read the gain narrowly
+
+The entire +0.103 MRR is those two questions moving from 0.33 to 1.00. Thirteen
+questions over seventeen chunks is a small sample, and one flip either way
+moves the mean by 0.05. The direction is right and the mechanism is understood,
+but this is not yet evidence that would survive a larger corpus unchanged.
+
+### What could not be established
+
+`figure-lookup-broadband` is the interesting failure. The fused ranking puts
+three irrelevant chunks above the right one, and all three match on the word
+**week** — "four weeks notice", "three days each week", "every day of the
+week". That is the cost of OR-ing the lexical query: a common word drags in
+unrelated documents. It is the same trade that revived the arm in the first
+place, seen from the other side.
+
+Given that, the reranker should have fixed it, and in isolation it does — asked
+directly, it puts the outages passage first out of five. So during the
+evaluation it either failed silently or degraded with seventeen candidates
+rather than five. The reranker swallows its own failures **by design**, so that
+a reranker cannot break retrieval; the same property hides quota errors.
+
+An instrumented re-run counting those failures could not complete: it stalled
+against the rate limit partway through. That stall is itself the finding —
+thirteen questions at three model calls each does not fit comfortably in
+fifteen requests a minute, which is exactly the confound worth knowing about.
+
+**Recommendation: keep reranking behind the flag, default off**, until the
+corpus is large enough for the gain to mean something and the failure rate is
+actually counted. The measured improvement is real but resting on two
+questions, and enabling it doubles model calls per query on a budget that has
+already proven too tight to measure it.
+
 ## Recall@5 is still not the number to watch
 
 At 17 chunks the top five is 29% of the corpus, so recall stays saturated.
@@ -70,3 +123,4 @@ strongest evidence so far that the heading breadcrumb is doing real work.
 | 2026-08-25 | 1 doc, 4 chunks | first baseline | 1.000 | 0.900 | 0.926 | 5/5 | 2/2 |
 | 2026-08-25 | 1 doc, 4 chunks | page provenance | 1.000 | 0.900 | 0.926 | 5/5 | 2/2 |
 | 2026-08-25 | 4 docs, 17 chunks | corpus grown, 16 questions | 1.000 | 0.801 | 0.851 | 13/13 | 3/3 |
+| 2026-08-25 | 4 docs, 17 chunks | listwise reranking (RERANK=1) | 1.000 | 0.904 | 0.928 | 13/13 | 3/3 |
