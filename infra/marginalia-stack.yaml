@@ -49,12 +49,12 @@ Resources:
       # Comfortably past the 50s the application allows itself, so the
       # application's own budget ends a long run, not the platform.
       Timeout: 120
-      # A coarse blast-radius guard for Isobar's public, unauthenticated chat
-      # route, whose own limiter counts per execution environment and so bounds
-      # nothing on Lambda. Not a rate limit: the real ceiling on spend is
-      # Gemini's own free-tier quota. Ten is high enough that a page load,
-      # which costs one invocation per uncached asset, does not throttle itself.
-      ReservedConcurrentExecutions: 10
+      # No ReservedConcurrentExecutions. This account's total concurrency quota
+      # is 10, so the account already imposes the blast-radius cap that a
+      # reservation was meant to provide -- and reserving any of it is refused,
+      # because Lambda requires at least 10 to stay unreserved. If the quota is
+      # ever raised, reserve ~10 here to restore the bound. Either way it is
+      # not a rate limit: the real ceiling on spend is Gemini's free-tier quota.
       Environment:
         Variables:
           # A Lambda environment variable rather than Secrets Manager. It is
@@ -77,6 +77,11 @@ Resources:
       AuthType: NONE
       InvokeMode: RESPONSE_STREAM
 
+  # A public function URL needs two grants, not one. Since October 2025 Lambda
+  # checks lambda:InvokeFunction as well as lambda:InvokeFunctionUrl, and a
+  # function missing the second returns 403 to every request — including under
+  # AuthType NONE, which makes it look like an authentication problem rather
+  # than a missing permission.
   UrlPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -84,6 +89,16 @@ Resources:
       Action: lambda:InvokeFunctionUrl
       Principal: '*'
       FunctionUrlAuthType: NONE
+
+  InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt AppFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: '*'
+      # Confines the grant to requests arriving through the function URL. Without
+      # it, this statement would let anyone invoke the function by any means.
+      InvokedViaFunctionUrl: true
 
   LogGroup:
     Type: AWS::Logs::LogGroup
