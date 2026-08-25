@@ -1,6 +1,6 @@
 # Marginalia Ingestion Core Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Turn raw extracted page text into clean, structure-aware chunks ready for embedding — the half of ingestion that is pure computation.
 
@@ -40,11 +40,11 @@ innocent-looking PDF, and control characters corrupt tokenization.
 **Interfaces:**
 - Produces: `normalizeExtractedText(rawText: string): string`
 
-- [ ] **Step 1: Write failing tests** covering: zero-width characters removed; control characters removed but newline and tab kept; non-breaking space becomes an ordinary space; runs of blank lines collapse to one; trailing whitespace per line trimmed; Unicode normalized to NFC; already-clean text unchanged.
-- [ ] **Step 2: Run — expect FAIL** (module missing)
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Run — expect PASS**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write failing tests** covering: zero-width characters removed; control characters removed but newline and tab kept; non-breaking space becomes an ordinary space; runs of blank lines collapse to one; trailing whitespace per line trimmed; Unicode normalized to NFC; already-clean text unchanged.
+- [x] **Step 2: Run — expect FAIL** (module missing)
+- [x] **Step 3: Implement**
+- [x] **Step 4: Run — expect PASS**
+- [x] **Step 5: Commit**
 
 ---
 
@@ -62,11 +62,11 @@ that silently never answers anything.
 **Interfaces:**
 - Produces: `assessPageExtraction(input: { extractedText: string; pageWidthInPoints: number; pageHeightInPoints: number }): PageExtractionAssessment` where the result is `{ verdict: 'usable' | 'needs-vision'; reasons: string[]; charactersPerSquareInch: number; wordLikeRatio: number }`
 
-- [ ] **Step 1: Write failing tests** covering: empty text on a full page needs vision; ordinary prose is usable; a scattered handful of characters on a large page needs vision; text dominated by replacement characters needs vision; every needs-vision verdict carries at least one human-readable reason.
-- [ ] **Step 2: Run — expect FAIL**
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Run — expect PASS**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write failing tests** covering: empty text on a full page needs vision; ordinary prose is usable; a scattered handful of characters on a large page needs vision; text dominated by replacement characters needs vision; every needs-vision verdict carries at least one human-readable reason.
+- [x] **Step 2: Run — expect FAIL**
+- [x] **Step 3: Implement**
+- [x] **Step 4: Run — expect PASS**
+- [x] **Step 5: Commit**
 
 ---
 
@@ -79,11 +79,11 @@ that silently never answers anything.
 **Interfaces:**
 - Produces: `estimateTokenCount(text: string): number`
 
-- [ ] **Step 1: Write failing tests** covering: empty string is zero; monotonic in length; English prose lands near one token per 0.75 words; CJK counts roughly one token per character.
-- [ ] **Step 2: Run — expect FAIL**
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Run — expect PASS**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write failing tests** covering: empty string is zero; monotonic in length; English prose lands near one token per 0.75 words; CJK counts roughly one token per character.
+- [x] **Step 2: Run — expect FAIL**
+- [x] **Step 3: Implement**
+- [x] **Step 4: Run — expect PASS**
+- [x] **Step 5: Commit**
 
 ---
 
@@ -101,7 +101,7 @@ window.
 - Consumes: `estimateTokenCount` from Task 3; `CHUNK_TARGET_TOKENS`, `CHUNK_OVERLAP_RATIO` from `src/rag/config.ts`
 - Produces: `chunkMarkdownDocument(markdown: string, options?: { targetTokens?: number; overlapRatio?: number }): DocumentChunk[]` where `DocumentChunk` is `{ ordinal: number; headingPath: string[]; content: string; estimatedTokenCount: number }`
 
-- [ ] **Step 1: Write failing tests** covering:
+- [x] **Step 1: Write failing tests** covering:
   - empty or whitespace-only input yields no chunks
   - a short document is one chunk with an empty heading path
   - headings become the heading path, nested to their level
@@ -114,7 +114,46 @@ window.
   - an oversized table splits by rows and repeats the header on every part
   - a fenced code block containing pipes is not mistaken for a table
   - ordinals are sequential from zero with no gaps
-- [ ] **Step 2: Run — expect FAIL**
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Run — expect PASS**
-- [ ] **Step 5: Commit**
+- [x] **Step 2: Run — expect FAIL**
+- [x] **Step 3: Implement**
+- [x] **Step 4: Run — expect PASS**
+- [x] **Step 5: Commit**
+
+---
+
+## Completion record — 2026-08-24
+
+All four tasks complete. `npm run verify` green: typecheck clean, lint clean,
+53 tests passing.
+
+| Module | Tests |
+| --- | --- |
+| `text-normalization.ts` | 11 |
+| `page-extraction-assessment.ts` | 9 |
+| `token-estimation.ts` | 6 |
+| `chunker.ts` | 23 |
+
+### One bug worth remembering
+
+The chunker's first implementation passed all 21 of its tests while being
+badly wrong: chunks accumulated, each containing its predecessor, growing
+20/40/60/80 tokens against a 22-token budget. The overlap helper splits on
+sentence boundaries, and a Markdown table contains none — so it returned the
+entire previous chunk as "the trailing sentence".
+
+It was found by printing the output and reading it, not by the suite. The
+tests asserted the header appeared on every part and that no row was lost;
+both stay true when chunks accumulate. Two assertions now pin the behaviour
+the original suite left unconstrained:
+
+- each data row appears in exactly one chunk
+- no chunk exceeds twice its token budget
+
+The general lesson: assertions about what is *present* pass happily while
+content is duplicated. At least one assertion per component should bound what
+is *absent* or *bounded*.
+
+### Carried forward
+
+Unchanged from Plan 1 — PostgREST still does not expose `rag`, which blocks
+the upload route but nothing in this plan.
