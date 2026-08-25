@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Isobar and Marginalia on Lambda, behind a Function URL.
+
+  A Function URL rather than API Gateway: these routes run past API Gateway's
+  29-second integration timeout (parsing a 40-page PDF measures 9s, answering
+  10-20s, and Isobar's own run budget is 50s), and Isobar streams its replies,
+  which Function URLs support natively.
+
+Parameters:
+  ImageUri:
+    Type: String
+    Description: ECR image URI, including the tag.
+  GeminiApiKey:
+    Type: String
+    NoEcho: true
+  SupabaseUrl:
+    Type: String
+  SupabasePublishableKey:
+    Type: String
+    Description: >
+      Safe to expose. The anon role holds no grant on the rag schema, so
+      reachability alone grants nothing without a signed-in user.
+
+Resources:
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      # Writing its own logs and nothing else. The function reaches Supabase
+      # and Gemini over the internet with their own credentials, so it needs
+      # no AWS permissions beyond this.
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  AppFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: marginalia
+      PackageType: Image
+      Code: { ImageUri: !Ref ImageUri }
+      Role: !GetAtt FunctionRole.Arn
+      MemorySize: 2048
+      # Comfortably past the 50s the application allows itself, so the
+      # application's own budget ends a long run, not the platform.
+      Timeout: 120
+      # A coarse blast-radius guard for Isobar's public, unauthenticated chat
+      # route, whose own limiter counts per execution environment and so bounds
+      # nothing on Lambda. Not a rate limit: the real ceiling on spend is
+      # Gemini's own free-tier quota. Ten is high enough that a page load,
+      # which costs one invocation per uncached asset, does not throttle itself.
+      ReservedConcurrentExecutions: 10
+      Environment:
+        Variables:
+          # A Lambda environment variable rather than Secrets Manager. It is
+          # encrypted at rest, and on a single-principal account the reader set
+          # is the same either way. Secrets Manager earns its keep once other
+          # people or roles can call lambda:GetFunctionConfiguration; moving it
+          # then costs one entrypoint change and $0.40 a month.
+          GOOGLE_GENERATIVE_AI_API_KEY: !Ref GeminiApiKey
+          SUPABASE_URL: !Ref SupabaseUrl
+          SUPABASE_PUBLISHABLE_KEY: !Ref SupabasePublishableKey
+          NODE_ENV: production
+
+  # No Cors block: the browser loads the page from this same origin, so the
+  # requests are same-origin and need no cross-origin grant. Adding one would
+  # widen who can call these routes for no benefit.
+  FunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt AppFunction.Arn
+      AuthType: NONE
+      InvokeMode: RESPONSE_STREAM
+
+  UrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt AppFunction.Arn
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/marginalia
+      # Logs are the largest recurring cost in a deployment this small, and
+      # nothing here is worth keeping for a month.
+      RetentionInDays: 7
+
+Outputs:
+  IsobarUrl:
+    Description: The weather briefing desk.
+    Value: !GetAtt FunctionUrl.FunctionUrl
+  MarginaliaUrl:
+    Description: Ask questions of your own documents.
+    Value: !Sub '${FunctionUrl.FunctionUrl}marginalia'
