@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Archivo, IBM_Plex_Mono, Newsreader } from 'next/font/google';
+import { Archivo, Courier_Prime, IBM_Plex_Mono, Newsreader, Spectral } from 'next/font/google';
 import './globals.css';
 
 // Archivo carries a width axis and is set condensed for chart lettering; Plex
@@ -12,6 +12,24 @@ const display = Archivo({
 });
 
 const prose = Newsreader({ subsets: ['latin'], variable: '--f-prose', display: 'swap' });
+
+// Marginalia's pair. Spectral carries prose the model composed; Courier Prime
+// carries text quoted verbatim from a page, so the typeface itself tells a
+// reader which is which.
+const documentSerif = Spectral({
+  subsets: ['latin'],
+  weight: ['400', '600'],
+  style: ['normal', 'italic'],
+  variable: '--f-document',
+  display: 'swap',
+});
+
+const typewriter = Courier_Prime({
+  subsets: ['latin'],
+  weight: ['400', '700'],
+  variable: '--f-typewriter',
+  display: 'swap',
+});
 
 const mono = IBM_Plex_Mono({
   subsets: ['latin'],
@@ -31,7 +49,16 @@ export const viewport: Viewport = { colorScheme: 'light', themeColor: '#e7ebe6' 
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${prose.variable} ${mono.variable}`}>
+    <html
+      lang="en"
+      className={[
+        display.variable,
+        prose.variable,
+        mono.variable,
+        documentSerif.variable,
+        typewriter.variable,
+      ].join(' ')}
+    >
       <body>{children}</body>
     </html>
   );
