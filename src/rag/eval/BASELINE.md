@@ -22,6 +22,17 @@ Per question:
     PASS  refusal-absent-topic             refused
     PASS  refusal-plausible-but-unstated   refused
 
+## Re-runs
+
+| date | change under test | recall@5 | MRR | nDCG@5 | grounded | refusals |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2026-08-25 | baseline | 1.000 | 0.900 | 0.926 | 5/5 | 2/2 |
+| 2026-08-25 | page provenance in chunks | 1.000 | 0.900 | 0.926 | 5/5 | 2/2 |
+
+Identical, which is the result that was wanted: carrying page numbers through
+chunking was meant to add information to a citation, not to change what
+retrieval finds. Without the harness that claim would have been an assumption.
+
 ## Read recall@5 with suspicion at this corpus size
 
 The corpus holds four chunks and recall is measured at five, so every relevant

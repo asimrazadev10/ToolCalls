@@ -14,6 +14,7 @@
  * traced back to a bad parse rather than blamed on retrieval.
  */
 
+import { pageMarker } from './chunker';
 import { detectFileType } from './file-type-detection';
 import { measureHeadingScale, renderLinesAsMarkdown } from './heading-inference';
 import {
@@ -45,7 +46,11 @@ export interface ParseDocumentInput {
   transcribePageWithVision?: VisionTranscriber;
 }
 
-/** Pages are separated so a chunk can later be traced to the page it came from. */
+/**
+ * Each page is announced by a marker the chunker reads and removes, so a chunk
+ * knows which page it came from. Without it a citation can name the section but
+ * not the page, and "show me where it says that" has no answer.
+ */
 const PAGE_SEPARATOR = '\n\n';
 
 async function parsePdf(
@@ -123,11 +128,13 @@ async function parsePdf(
     }
   }
 
-  return {
-    markdown: pageTexts.filter((text) => text.length > 0).join(PAGE_SEPARATOR),
-    pageCount: pages.length,
-    parseReport,
-  };
+  const markdown = pages
+    .map((page, index) => ({ pageNumber: page.pageNumber, text: pageTexts[index] }))
+    .filter((page) => page.text.length > 0)
+    .map((page) => `${pageMarker(page.pageNumber)}\n\n${page.text}`)
+    .join(PAGE_SEPARATOR);
+
+  return { markdown, pageCount: pages.length, parseReport };
 }
 
 export async function parseDocument(input: ParseDocumentInput): Promise<ParsedDocument> {

@@ -71,6 +71,8 @@ const stored = await storeDocumentChunks(
     content: chunk.content,
     tokenCount: chunk.estimatedTokenCount,
     headingPath: chunk.headingPath,
+    pageFrom: chunk.pageFrom,
+    pageTo: chunk.pageTo,
     embedding: vectors[index],
   })),
 );

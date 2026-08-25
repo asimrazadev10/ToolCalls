@@ -6,7 +6,7 @@
  * resulting chunk retrieves as a fragment that answers nothing. Splitting on
  * headings first means a chunk is a unit someone could have written on purpose.
  *
- * Three cases earn special handling because getting them wrong is silent:
+ * Four cases earn special handling because getting them wrong is silent:
  *
  *   - A table split without repeating its header leaves orphan rows whose
  *     columns no longer mean anything: "1200" with no "Amount" above it.
@@ -14,6 +14,9 @@
  *     which then mangles it into rows.
  *   - Overlap carried across a heading dilutes both sections, so it stops at
  *     every heading.
+ *   - Page markers are read and removed rather than chunked. A citation that
+ *     cannot name its page cannot be checked, and checking is most of what a
+ *     citation is for.
  */
 
 import { CHUNK_OVERLAP_RATIO, CHUNK_TARGET_TOKENS } from '../config';
@@ -25,6 +28,9 @@ export interface DocumentChunk {
   headingPath: string[];
   content: string;
   estimatedTokenCount: number;
+  /** Null for sources without pages, such as an uploaded Markdown file. */
+  pageFrom: number | null;
+  pageTo: number | null;
 }
 
 export interface ChunkingOptions {
@@ -32,21 +38,45 @@ export interface ChunkingOptions {
   overlapRatio?: number;
 }
 
+/**
+ * Emitted by the parser between pages. An HTML comment because it is invisible
+ * wherever Markdown is rendered, and vanishingly unlikely to occur in a PDF's
+ * own text layer.
+ */
+export const pageMarker = (pageNumber: number) => `<!--marginalia:page=${pageNumber}-->`;
+const PAGE_MARKER_LINE = /^\s*<!--marginalia:page=(\d+)-->\s*$/;
+
 const HEADING_LINE = /^(#{1,6})\s+(.*\S)\s*$/;
 const CODE_FENCE_LINE = /^\s*(```|~~~)/;
 const TABLE_ROW_LINE = /^\s*\|.*\|\s*$/;
 const TABLE_SEPARATOR_LINE = /^\s*\|[\s:|-]+\|\s*$/;
 const SENTENCE_BOUNDARY = /(?<=[.!?])\s+/;
 
+interface PageRange {
+  pageFrom: number | null;
+  pageTo: number | null;
+}
+
 /** A run of lines that must not be split by the generic sentence splitter. */
-type Block =
-  | { kind: 'table'; headerLines: string[]; bodyLines: string[] }
-  | { kind: 'code'; lines: string[] }
-  | { kind: 'prose'; text: string };
+type Block = PageRange &
+  (
+    | { kind: 'table'; headerLines: string[]; bodyLines: string[] }
+    | { kind: 'code'; lines: string[] }
+    | { kind: 'prose'; text: string }
+  );
 
 interface Section {
   headingPath: string[];
   blocks: Block[];
+}
+
+function widen(range: PageRange, other: PageRange): PageRange {
+  const pages = [range.pageFrom, range.pageTo, other.pageFrom, other.pageTo].filter(
+    (page): page is number => page !== null,
+  );
+  return pages.length === 0
+    ? { pageFrom: null, pageTo: null }
+    : { pageFrom: Math.min(...pages), pageTo: Math.max(...pages) };
 }
 
 /**
@@ -61,11 +91,23 @@ function parseSections(markdown: string): Section[] {
   let headingStack: string[] = [];
   let currentBlocks: Block[] = [];
   let proseLines: string[] = [];
+  let currentPage: number | null = null;
+  // Where the run of prose being accumulated began, which may be an earlier
+  // page than the one we are on by the time it ends.
+  let proseStartedOnPage: number | null = null;
 
   const flushProse = () => {
     const text = proseLines.join('\n').trim();
-    if (text.length > 0) currentBlocks.push({ kind: 'prose', text });
+    if (text.length > 0) {
+      currentBlocks.push({
+        kind: 'prose',
+        text,
+        pageFrom: proseStartedOnPage,
+        pageTo: currentPage,
+      });
+    }
     proseLines = [];
+    proseStartedOnPage = currentPage;
   };
 
   const flushSection = () => {
@@ -79,6 +121,15 @@ function parseSections(markdown: string): Section[] {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
 
+    const pageMark = PAGE_MARKER_LINE.exec(line);
+    if (pageMark) {
+      // Flush first, so prose already gathered keeps the page it started on.
+      flushProse();
+      currentPage = Number(pageMark[1]);
+      proseStartedOnPage = currentPage;
+      continue;
+    }
+
     if (CODE_FENCE_LINE.test(line)) {
       flushProse();
       const fenced = [line];
@@ -88,7 +139,12 @@ function parseSections(markdown: string): Section[] {
         if (CODE_FENCE_LINE.test(lines[index])) break;
         index += 1;
       }
-      currentBlocks.push({ kind: 'code', lines: fenced });
+      currentBlocks.push({
+        kind: 'code',
+        lines: fenced,
+        pageFrom: currentPage,
+        pageTo: currentPage,
+      });
       continue;
     }
 
@@ -116,10 +172,17 @@ function parseSections(markdown: string): Section[] {
         index += 1;
       }
       index -= 1;
-      currentBlocks.push({ kind: 'table', headerLines, bodyLines });
+      currentBlocks.push({
+        kind: 'table',
+        headerLines,
+        bodyLines,
+        pageFrom: currentPage,
+        pageTo: currentPage,
+      });
       continue;
     }
 
+    if (proseLines.length === 0) proseStartedOnPage = currentPage;
     proseLines.push(line);
   }
 
@@ -231,6 +294,7 @@ export function chunkMarkdownDocument(
     // Overlap is seeded per section and never carried across a heading.
     let pending: string[] = [];
     let pendingTokens = 0;
+    let pendingPages: PageRange = { pageFrom: null, pageTo: null };
 
     const emit = () => {
       const content = pending.join('\n\n').trim();
@@ -240,6 +304,8 @@ export function chunkMarkdownDocument(
         headingPath: section.headingPath,
         content,
         estimatedTokenCount: estimateTokenCount(content),
+        pageFrom: pendingPages.pageFrom,
+        pageTo: pendingPages.pageTo,
       });
       return content;
     };
@@ -247,23 +313,33 @@ export function chunkMarkdownDocument(
     const flushWithOverlap = () => {
       const emitted = emit();
       const overlap = emitted ? trailingSentencesWithin(emitted, overlapTokens) : '';
+      const carriedPages: PageRange = overlap
+        ? { pageFrom: pendingPages.pageTo, pageTo: pendingPages.pageTo }
+        : { pageFrom: null, pageTo: null };
       pending = overlap ? [overlap] : [];
       pendingTokens = overlap ? estimateTokenCount(overlap) : 0;
+      pendingPages = carriedPages;
     };
 
-    const addPiece = (piece: string) => {
+    const addPiece = (piece: string, pages: PageRange) => {
       const tokens = estimateTokenCount(piece);
       if (pending.length > 0 && pendingTokens + tokens > targetTokens) flushWithOverlap();
       pending.push(piece);
       pendingTokens += tokens;
+      pendingPages = widen(pendingPages, pages);
     };
 
     for (const block of section.blocks) {
       const rendered = renderBlock(block);
+      const pages: PageRange = { pageFrom: block.pageFrom, pageTo: block.pageTo };
+
       if (estimateTokenCount(rendered) <= targetTokens) {
-        addPiece(rendered);
+        addPiece(rendered, pages);
       } else {
-        for (const piece of splitOversizedBlock(block, targetTokens)) addPiece(piece);
+        // Every piece of a split block claims the block's whole range. Each
+        // piece genuinely sits inside it, so the citation stays true even
+        // though it is coarser than it could be.
+        for (const piece of splitOversizedBlock(block, targetTokens)) addPiece(piece, pages);
       }
     }
 

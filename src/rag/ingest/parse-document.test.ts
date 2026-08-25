@@ -67,6 +67,28 @@ describe('structure recovered from typography', () => {
   });
 });
 
+describe('page provenance reaching a chunk', () => {
+  it('lets a chunk say which page it came from, which a citation needs', async () => {
+    const { chunkMarkdownDocument } = await import('./chunker');
+    const parsed = await parseDocument({ bytes: await fixture('two-page-text.pdf') });
+
+    const chunks = chunkMarkdownDocument(parsed.markdown, { targetTokens: 140 });
+
+    expect(chunks.every((chunk) => chunk.pageFrom !== null)).toBe(true);
+    // The fixture has two pages, and chunks come from both.
+    expect(new Set(chunks.map((chunk) => chunk.pageFrom))).toEqual(new Set([1, 2]));
+  });
+
+  it('keeps the marker out of the text the model reads', async () => {
+    const parsed = await parseDocument({ bytes: await fixture('two-page-text.pdf') });
+    const { chunkMarkdownDocument } = await import('./chunker');
+
+    for (const chunk of chunkMarkdownDocument(parsed.markdown, { targetTokens: 140 })) {
+      expect(chunk.content).not.toContain('marginalia:page');
+    }
+  });
+});
+
 describe('a PDF with no text layer', () => {
   it('sends exactly the failing page to the transcriber', async () => {
     const transcribePageWithVision = vi.fn().mockResolvedValue('Recovered by vision.');

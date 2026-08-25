@@ -202,6 +202,76 @@ describe('fenced code', () => {
   });
 });
 
+describe('page provenance', () => {
+  // A citation that cannot say which page it came from cannot be checked, and
+  // "show me where it says that" is most of what a citation is for.
+  const PAGE = (n: number) => `<!--marginalia:page=${n}-->`;
+
+  it('reports the page a chunk came from', () => {
+    const chunks = chunkMarkdownDocument(
+      `${PAGE(1)}\n\n## Pets\n\nNo animals permitted.`,
+      ROOMY,
+    );
+
+    expect(chunks[0].pageFrom).toBe(1);
+    expect(chunks[0].pageTo).toBe(1);
+  });
+
+  it('never leaks the page marker into chunk content', () => {
+    const chunks = chunkMarkdownDocument(
+      `${PAGE(4)}\n\n## Pets\n\nNo animals permitted.`,
+      ROOMY,
+    );
+
+    expect(chunks[0].content).not.toContain('marginalia:page');
+    expect(chunks[0].content).toContain('No animals permitted.');
+  });
+
+  it('spans a page break rather than pretending a section sits on one page', () => {
+    const chunks = chunkMarkdownDocument(
+      [
+        PAGE(2),
+        '## Obligations',
+        'The first obligation runs here.',
+        PAGE(3),
+        'The second obligation continues overleaf.',
+      ].join('\n\n'),
+      ROOMY,
+    );
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].pageFrom).toBe(2);
+    expect(chunks[0].pageTo).toBe(3);
+  });
+
+  it('attributes a heading to the page it is printed on', () => {
+    const chunks = chunkMarkdownDocument(
+      [PAGE(1), '## One', 'First body.', PAGE(2), '## Two', 'Second body.'].join('\n\n'),
+      ROOMY,
+    );
+
+    expect(chunks[0].pageFrom).toBe(1);
+    expect(chunks[1].pageFrom).toBe(2);
+  });
+
+  it('leaves pages null when the source had none, as plain text does', () => {
+    const chunks = chunkMarkdownDocument('## Pets\n\nNo animals permitted.', ROOMY);
+
+    expect(chunks[0].pageFrom).toBeNull();
+    expect(chunks[0].pageTo).toBeNull();
+  });
+
+  it('does not mistake a marker for a table row or a heading', () => {
+    const chunks = chunkMarkdownDocument(
+      [PAGE(1), '| Item | Amount |', '| --- | --- |', '| Rent | 1200 |'].join('\n'),
+      ROOMY,
+    );
+
+    expect(chunks[0].content).toContain('| Rent | 1200 |');
+    expect(chunks[0].headingPath).toEqual([]);
+  });
+});
+
 describe('the shape of the result', () => {
   it('numbers chunks sequentially from zero with no gaps', () => {
     const chunks = chunkMarkdownDocument(
