@@ -27,16 +27,28 @@ async function writeTwoPageTextPdf() {
         'agreement and shall not permit any breach thereof.',
     );
 
-  const drawPage = (heading: string, subject: string) => {
+  // Three type sizes, so heading inference has a real hierarchy to recover:
+  // 24pt document title, 16pt section headings, 10pt body.
+  const drawPage = (options: { title?: string; heading: string; subject: string }) => {
     const page = pdf.addPage([612, 792]); // US Letter
-    page.drawText(heading, { x: 72, y: 720, size: 18, font });
-    bodyLines(subject).forEach((line, index) => {
-      page.drawText(line, { x: 72, y: 680 - index * 22, size: 10, font });
+    let y = 740;
+
+    if (options.title) {
+      page.drawText(options.title, { x: 72, y, size: 24, font });
+      y -= 40;
+    }
+
+    page.drawText(options.heading, { x: 72, y, size: 16, font });
+    y -= 30;
+
+    bodyLines(options.subject).forEach((line) => {
+      page.drawText(line, { x: 72, y, size: 10, font });
+      y -= 22;
     });
   };
 
-  drawPage('Section 8 Pets', 'animal');
-  drawPage('Section 9 Noise', 'quiet hours');
+  drawPage({ title: 'Residential Lease', heading: 'Section 8 Pets', subject: 'animal' });
+  drawPage({ heading: 'Section 9 Noise', subject: 'quiet hours' });
 
   await writeFile(new URL('two-page-text.pdf', FIXTURE_DIRECTORY), await pdf.save());
 }
