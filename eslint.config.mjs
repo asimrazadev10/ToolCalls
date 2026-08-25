@@ -6,6 +6,22 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    rules: {
+      // A leading underscore is the conventional way to say "this parameter
+      // exists to hold a position in the signature". Required, for instance,
+      // where a stub must declare arguments it never reads so callers can
+      // still be asserted against.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+    },
+  },
+  {
     files: ['src/rag/**/*.{ts,tsx}'],
     rules: {
       /**
