@@ -3,19 +3,18 @@ import { MAX_UPLOAD_BYTES } from '@/rag/config';
 import { createMarginaliaClient, readSupabaseConfig } from '@/rag/db/client';
 import { storeDocumentChunks } from '@/rag/db/document-repository';
 import { MARGINALIA_LIMITS, claimRequestSlot } from '@/rag/db/rate-limit';
-import { composeEmbeddingInput } from '@/rag/embed/embedding-input';
-import { createGeminiEmbedder } from '@/rag/embed/gemini-embedder';
 import { chunkMarkdownDocument } from '@/rag/ingest/chunker';
 import { parseDocument } from '@/rag/ingest/parse-document';
 
 /**
- * Ingestion runs inside the request: parse, chunk, embed, store.
+ * Parses and chunks an upload, and stops there.
  *
- * That is a known limit, not an oversight. A long document will outlast any
- * request budget, and the fix is a queue with a worker — which then has no
- * user token, and needs a credential decision this system has so far avoided
- * needing. Until then the upload cap keeps documents inside what a request can
- * finish.
+ * Embedding is a separate, repeatable step, because a few hundred chunks
+ * cannot be embedded inside one request. The usual fix is a queue and a
+ * background worker, which has no user token and so needs a credential that
+ * reaches every tenant; this system has avoided holding one and that is worth
+ * keeping. Instead the progress lives in the database — a chunk without a
+ * vector is the work queue — so the client resumes with its own token.
  */
 export const maxDuration = 60;
 
@@ -88,23 +87,17 @@ export async function POST(request: Request) {
       return refuse(insertError?.message ?? 'That document could not be saved.', 500);
     }
 
-    const vectors = await createGeminiEmbedder({ apiKey })({
-      texts: chunks.map(composeEmbeddingInput),
-      taskType: 'RETRIEVAL_DOCUMENT',
-      signal: request.signal,
-    });
-
     const stored = await storeDocumentChunks(
       client,
       document.id,
-      chunks.map((chunk, index) => ({
+      chunks.map((chunk) => ({
         ordinal: chunk.ordinal,
         content: chunk.content,
         tokenCount: chunk.estimatedTokenCount,
         headingPath: chunk.headingPath,
         pageFrom: chunk.pageFrom,
         pageTo: chunk.pageTo,
-        embedding: vectors[index],
+        // No vector yet. The caller embeds in batches from here.
       })),
     );
 

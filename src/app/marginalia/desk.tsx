@@ -42,6 +42,9 @@ export function Desk(props: { supabaseUrl: string; supabasePublishableKey: strin
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState<'asking' | 'uploading' | null>(null);
+  const [ingestProgress, setIngestProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
   const [problem, setProblem] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -112,21 +115,73 @@ export function Desk(props: { supabaseUrl: string; supabasePublishableKey: strin
     if (!session) return;
     setBusy('uploading');
     setProblem(null);
+    setIngestProgress(null);
 
     try {
+      // Reading and splitting the file happens once. Embedding cannot finish
+      // in one request for a long document, so it runs as a loop from here —
+      // and because the database holds the progress, closing this tab pauses
+      // the work rather than losing it.
       const response = await fetch('/api/rag/documents', {
         method: 'POST',
         headers: { Authorization: `Bearer ${session.token}`, 'x-filename': file.name },
         body: file,
       });
-      const body = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(body.error ?? 'That document could not be read.');
+      const created = (await response.json()) as {
+        id?: string;
+        chunkCount?: number;
+        error?: string;
+      };
+      if (!response.ok || !created.id) {
+        throw new Error(created.error ?? 'That document could not be read.');
+      }
+
+      await loadDocuments();
+      await embedUntilDone(created.id, created.chunkCount ?? 0);
       await loadDocuments();
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : 'That document could not be read.');
     } finally {
       setBusy(null);
+      setIngestProgress(null);
       if (fileInput.current) fileInput.current.value = '';
+    }
+  }
+
+  /** Embeds a document batch by batch, reporting progress as it goes. */
+  async function embedUntilDone(documentId: string, totalChunks: number) {
+    if (!session) return;
+    let done = 0;
+
+    for (;;) {
+      const response = await fetch('/api/rag/documents/embed', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ documentId }),
+      });
+      const body = (await response.json()) as {
+        embedded?: number;
+        remaining?: number;
+        done?: boolean;
+        error?: string;
+      };
+
+      if (response.status === 429) {
+        // The quota, not a failure. Wait it out rather than abandoning a
+        // half-embedded document.
+        const retryAfter = Number(response.headers.get('retry-after') ?? 5);
+        await new Promise((resume) => setTimeout(resume, retryAfter * 1000));
+        continue;
+      }
+      if (!response.ok) throw new Error(body.error ?? 'Embedding failed.');
+
+      done += body.embedded ?? 0;
+      setIngestProgress({ done, total: totalChunks || done + (body.remaining ?? 0) });
+
+      if (body.done || (body.remaining ?? 0) === 0) return;
     }
   }
 
@@ -232,7 +287,11 @@ export function Desk(props: { supabaseUrl: string; supabasePublishableKey: strin
               if (file) void addDocument(file);
             }}
           />
-          {busy === 'uploading' ? 'Reading…' : 'Add a document'}
+          {busy !== 'uploading'
+            ? 'Add a document'
+            : ingestProgress
+              ? `Reading ${ingestProgress.done}/${ingestProgress.total}`
+              : 'Reading…'}
         </label>
       </section>
 

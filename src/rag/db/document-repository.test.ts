@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { EMBEDDING_DIMENSIONS } from '../config';
 import {
   type RpcCapableClient,
+  nextUnembeddedChunks,
   searchDocuments,
+  storeChunkEmbeddings,
   storeDocumentChunks,
 } from './document-repository';
 
@@ -88,6 +90,70 @@ describe('storing chunks', () => {
     const { client, rpc } = stubClient({ data: 0 });
 
     expect(await storeDocumentChunks(client, 'doc-1', [])).toBe(0);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('resumable ingestion', () => {
+  it('stores chunks with no embeddings, so a long document can land before its vectors', async () => {
+    const { client, rpc } = stubClient({ data: 120 });
+
+    const stored = await storeDocumentChunks(client, 'doc-1', [
+      { ordinal: 0, content: 'a', tokenCount: 1, headingPath: [] },
+    ]);
+
+    expect(stored).toBe(120);
+    const params = rpc.mock.calls[0][1] as unknown as { chunks: { embedding?: unknown }[] };
+    expect(params.chunks[0].embedding).toBeUndefined();
+  });
+
+  it('reads the outstanding work with the count still to do', async () => {
+    const { client } = stubClient({
+      data: [
+        { chunk_id: 'c1', ordinal: 0, content: 'first', heading_path: ['A'], remaining: 7 },
+        { chunk_id: 'c2', ordinal: 1, content: 'second', heading_path: [], remaining: 7 },
+      ],
+    });
+
+    const batch = await nextUnembeddedChunks(client, 'doc-1', 2);
+
+    expect(batch.remaining).toBe(7);
+    expect(batch.chunks).toEqual([
+      { chunkId: 'c1', ordinal: 0, content: 'first', headingPath: ['A'] },
+      { chunkId: 'c2', ordinal: 1, content: 'second', headingPath: [] },
+    ]);
+  });
+
+  it('reports nothing outstanding when the document is finished', async () => {
+    const { client } = stubClient({ data: [] });
+
+    expect(await nextUnembeddedChunks(client, 'doc-1', 50)).toEqual({
+      chunks: [],
+      remaining: 0,
+    });
+  });
+
+  it('stores a batch of vectors and returns how many are still awaited', async () => {
+    const { client, rpc } = stubClient({ data: 40 });
+
+    const awaiting = await storeChunkEmbeddings(client, 'doc-1', [
+      { chunkId: 'c1', embedding: embedding(0.01) },
+    ]);
+
+    expect(awaiting).toBe(40);
+    const params = rpc.mock.calls[0][1] as unknown as {
+      embeddings: { chunk_id: string; embedding: string }[];
+    };
+    expect(params.embeddings[0].chunk_id).toBe('c1');
+    expect(typeof params.embeddings[0].embedding).toBe('string');
+  });
+
+  it('rejects a malformed vector before it reaches the database', async () => {
+    const { client, rpc } = stubClient({ data: 0 });
+
+    await expect(
+      storeChunkEmbeddings(client, 'doc-1', [{ chunkId: 'c1', embedding: [0.1] }]),
+    ).rejects.toThrow(/dimensions/i);
     expect(rpc).not.toHaveBeenCalled();
   });
 });

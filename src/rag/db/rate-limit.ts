@@ -34,6 +34,12 @@ export interface SlotClaim {
 export const MARGINALIA_LIMITS = {
   ask: { operation: 'ask', maxRequests: 20, windowSeconds: 60 },
   upload: { operation: 'upload', maxRequests: 5, windowSeconds: 300 },
+  /**
+   * Embedding is a loop the client drives, so its allowance is generous: each
+   * call is one provider request, and throttling it too hard would stall a
+   * long document rather than protect anything.
+   */
+  embed: { operation: 'embed', maxRequests: 60, windowSeconds: 60 },
 } as const satisfies Record<string, RateLimit>;
 
 interface SlotRow {

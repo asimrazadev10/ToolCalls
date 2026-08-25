@@ -27,6 +27,29 @@ export interface ChunkToStore {
   headingPath: string[];
   pageFrom?: number | null;
   pageTo?: number | null;
+  /**
+   * Optional, so a long document's chunks can land before its vectors do.
+   * Embedding a few hundred chunks cannot finish inside one request, and the
+   * chunks that lack a vector are what makes the work resumable.
+   */
+  embedding?: number[];
+}
+
+export interface UnembeddedChunk {
+  chunkId: string;
+  ordinal: number;
+  content: string;
+  headingPath: string[];
+}
+
+export interface PendingEmbeddingWork {
+  chunks: UnembeddedChunk[];
+  /** How many chunks in this document still have no vector, in total. */
+  remaining: number;
+}
+
+export interface ChunkEmbedding {
+  chunkId: string;
   embedding: number[];
 }
 
@@ -88,7 +111,9 @@ export async function storeDocumentChunks(
   // Checked before the call, not after. The column accepts a right-length
   // vector of noise without complaint, and the mistake would then surface only
   // as poor retrieval, long after the document was ingested.
-  for (const chunk of chunks) assertEmbeddingShape(chunk.embedding);
+  for (const chunk of chunks) {
+    if (chunk.embedding) assertEmbeddingShape(chunk.embedding);
+  }
 
   const stored = await callFunction(client, 'store_document_chunks', {
     target_document_id: documentId,
@@ -99,7 +124,9 @@ export async function storeDocumentChunks(
       heading_path: chunk.headingPath,
       page_from: chunk.pageFrom ?? null,
       page_to: chunk.pageTo ?? null,
-      embedding: toHalfvecLiteral(chunk.embedding),
+      // Omitted rather than null when absent, so the database can tell
+      // "not embedded yet" from "embedded with nothing".
+      ...(chunk.embedding ? { embedding: toHalfvecLiteral(chunk.embedding) } : {}),
     })),
   });
 
@@ -134,4 +161,62 @@ export async function searchDocuments(
     denseRank: row.dense_rank,
     textRank: row.text_rank,
   }));
+}
+
+interface PendingRow {
+  chunk_id: string;
+  ordinal: number;
+  content: string;
+  heading_path: string[] | null;
+  remaining: number;
+}
+
+/**
+ * The outstanding work for a document. Chunks without vectors are themselves
+ * the queue, so any client holding the owner's token can resume — the same
+ * tab, a new tab, or a different device tomorrow.
+ */
+export async function nextUnembeddedChunks(
+  client: RpcCapableClient,
+  documentId: string,
+  batchSize: number,
+): Promise<PendingEmbeddingWork> {
+  const rows = await callFunction(client, 'next_unembedded_chunks', {
+    target_document_id: documentId,
+    batch_size: batchSize,
+  });
+
+  if (!Array.isArray(rows) || rows.length === 0) return { chunks: [], remaining: 0 };
+
+  const pending = rows as PendingRow[];
+  return {
+    remaining: Number(pending[0].remaining ?? 0),
+    chunks: pending.map((row) => ({
+      chunkId: row.chunk_id,
+      ordinal: row.ordinal,
+      content: row.content,
+      headingPath: row.heading_path ?? [],
+    })),
+  };
+}
+
+/** Stores one batch of vectors. Returns how many chunks still await one. */
+export async function storeChunkEmbeddings(
+  client: RpcCapableClient,
+  documentId: string,
+  embeddings: ChunkEmbedding[],
+): Promise<number> {
+  if (embeddings.length === 0) return 0;
+
+  for (const entry of embeddings) assertEmbeddingShape(entry.embedding);
+
+  const awaiting = await callFunction(client, 'store_chunk_embeddings', {
+    target_document_id: documentId,
+    embeddings: embeddings.map((entry) => ({
+      chunk_id: entry.chunkId,
+      embedding: toHalfvecLiteral(entry.embedding),
+    })),
+  });
+
+  return typeof awaiting === 'number' ? awaiting : 0;
 }
