@@ -1,0 +1,55 @@
+{
+  "corpus": "src/rag/ingest/__fixtures__/lease-detailed.pdf",
+  "note": "Each question targets one capability. A set where every question is answerable the same way measures nothing: this session shipped a retrieval arm that was dead for natural-language questions precisely because every test used keywords.",
+  "questions": [
+    {
+      "id": "paraphrase-assistance-dog",
+      "question": "am I allowed to have a guide dog in the flat?",
+      "targets": "dense retrieval — the document says 'assistance dog', the question says 'guide dog', and no word is shared beyond 'dog'",
+      "expectedContentMarkers": ["assistance dog"],
+      "expectRefusal": false
+    },
+    {
+      "id": "paraphrase-quiet-hours",
+      "question": "when do I have to keep the noise down?",
+      "targets": "dense retrieval — 'keep the noise down' shares no content word with 'quiet hours'",
+      "expectedContentMarkers": ["Quiet hours run from 10pm"],
+      "expectRefusal": false
+    },
+    {
+      "id": "natural-language-lexical",
+      "question": "what are the rules about keeping animals?",
+      "targets": "the lexical arm on a natural-language question — the exact case that was silently dead, since websearch_to_tsquery ANDs every term",
+      "expectedContentMarkers": ["No animal may be kept"],
+      "expectRefusal": false
+    },
+    {
+      "id": "exact-token",
+      "question": "PM2.5",
+      "targets": "the lexical arm on a rare token dense retrieval tends to blur",
+      "expectedContentMarkers": ["PM2.5"],
+      "expectRefusal": false
+    },
+    {
+      "id": "figure-lookup",
+      "question": "how much is the deposit and when do I get it back?",
+      "targets": "a question whose answer is a figure and a period, both of which must be quoted exactly",
+      "expectedContentMarkers": ["2,400", "10 working days"],
+      "expectRefusal": false
+    },
+    {
+      "id": "refusal-absent-topic",
+      "question": "how much does a parking permit cost?",
+      "targets": "refusal — the lease never mentions parking, and a confident invented figure is the worst failure this system can produce",
+      "expectedContentMarkers": [],
+      "expectRefusal": true
+    },
+    {
+      "id": "refusal-plausible-but-unstated",
+      "question": "how many people are allowed to live at the property?",
+      "targets": "refusal on a question a lease plausibly answers but this one does not — harder than an absent topic, because related passages will retrieve",
+      "expectedContentMarkers": [],
+      "expectRefusal": true
+    }
+  ]
+}

@@ -62,6 +62,59 @@ async function writeNoTextLayerPdf() {
   await writeFile(new URL('no-text-layer.pdf', FIXTURE_DIRECTORY), await pdf.save());
 }
 
+/**
+ * A lease whose sections carry genuinely different content, so an evaluation
+ * question has one right answer rather than seven interchangeable ones. The
+ * repetitive fixture is still useful for chunking mechanics; it is useless for
+ * measuring retrieval, because every chunk answers every question equally.
+ */
+async function writeDetailedLeasePdf() {
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+
+  const sections: [string, string[]][] = [
+    ['Section 8 - Pets', [
+      'No animal may be kept at the property without the prior written consent',
+      'of the landlord. This restriction does not apply to a registered',
+      'assistance dog, which the tenant may keep without seeking consent.',
+    ]],
+    ['Section 9 - Noise', [
+      'Quiet hours run from 10pm until 7am on every day of the week. During',
+      'quiet hours the tenant shall not play amplified music or operate',
+      'power tools anywhere at the property.',
+    ]],
+    ['Section 12 - Deposit', [
+      'The deposit of 2,400 pounds is held in a government approved scheme.',
+      'It shall be returned within 10 working days of the end of the term,',
+      'less any deductions properly made under clause 9.',
+    ]],
+    ['Schedule 3 - Services', [
+      'The landlord shall maintain the mechanical ventilation so that indoor',
+      'PM2.5 remains below 15 micrograms per cubic metre at all times, and',
+      'shall replace filters every six months.',
+    ]],
+  ];
+
+  let page = pdf.addPage([612, 792]);
+  page.drawText('Residential Lease Agreement', { x: 72, y: 730, size: 24, font: bold });
+  let y = 680;
+
+  for (const [heading, lines] of sections) {
+    if (y < 200) { page = pdf.addPage([612, 792]); y = 730; }
+    page.drawText(heading, { x: 72, y, size: 16, font: bold });
+    y -= 28;
+    for (const line of lines) {
+      page.drawText(line, { x: 72, y, size: 11, font });
+      y -= 20;
+    }
+    y -= 26;
+  }
+
+  await writeFile(new URL('lease-detailed.pdf', FIXTURE_DIRECTORY), await pdf.save());
+}
+
 await writeTwoPageTextPdf();
 await writeNoTextLayerPdf();
+await writeDetailedLeasePdf();
 console.log('fixtures written');

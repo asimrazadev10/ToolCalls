@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
-    "verify": "npm run typecheck && npm run lint && npm test"
+    "verify": "npm run typecheck && npm run lint && npm test",
+    "eval": "tsx scripts/run-evaluation.mts"
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.0",
