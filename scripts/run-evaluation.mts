@@ -82,13 +82,20 @@ const goldenSet = JSON.parse(
 ) as { corpus: string; questions: GoldenQuestion[] };
 
 // --- sign in ----------------------------------------------------------------
+// Required rather than defaulted. A committed fallback password is a live
+// credential for whichever project the .env points at, and this file is public.
+const evalEmail = process.env.EVAL_EMAIL;
+const evalPassword = process.env.EVAL_PASSWORD;
+if (!evalEmail || !evalPassword) {
+  throw new Error(
+    'set EVAL_EMAIL and EVAL_PASSWORD to a user that owns the evaluation corpus',
+  );
+}
+
 const authResponse = await fetch(`${config.url}/auth/v1/token?grant_type=password`, {
   method: 'POST',
   headers: { apikey: config.publishableKey, 'content-type': 'application/json' },
-  body: JSON.stringify({
-    email: process.env.EVAL_EMAIL ?? 'alice@marginalia.test',
-    password: process.env.EVAL_PASSWORD ?? 'Str0ng-Test-Passphrase',
-  }),
+  body: JSON.stringify({ email: evalEmail, password: evalPassword }),
 });
 const { access_token: accessToken } = (await authResponse.json()) as { access_token?: string };
 if (!accessToken) throw new Error('evaluation needs a signed-in user; see EVAL_EMAIL/EVAL_PASSWORD');

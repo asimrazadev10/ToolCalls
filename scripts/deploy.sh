@@ -19,10 +19,10 @@
 set -euo pipefail
 
 REGION=us-east-1
-ACCOUNT=437521954794
 STACK=marginalia
 REPOSITORY=marginalia
-IMAGE_URI="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/${REPOSITORY}"
+# ACCOUNT and IMAGE_URI are derived from the caller once credentials are
+# checked, so this file names no particular AWS account.
 
 cd "$(dirname "$0")/.."
 
@@ -74,6 +74,9 @@ if ! CALLER=$(aws sts get-caller-identity --output json 2>&1); then
   exit 1
 fi
 echo "  $(echo "$CALLER" | python3 -c 'import json,sys;print(json.load(sys.stdin)["Arn"])')"
+
+ACCOUNT=$(echo "$CALLER" | python3 -c 'import json,sys;print(json.load(sys.stdin)["Account"])')
+IMAGE_URI="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/${REPOSITORY}"
 
 # Captured so the trap can revoke exactly the key in use, rather than every key
 # on the user -- which would clobber a key someone else is holding.
