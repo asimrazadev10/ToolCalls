@@ -6,4 +6,3 @@ node_modules/
 
 # AWS deployment scratch
 infra/.deploy-*
-
